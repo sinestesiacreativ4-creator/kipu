@@ -1,0 +1,38 @@
+services:
+  # 1. Web Service (API)
+  - type: web
+    name: audio-backend-api
+    env: docker
+    rootDir: backend
+    plan: free
+    dockerCommand: npm run start
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+
+  # 2. Background Worker (Running as Web Service for Free Tier)
+  - type: web
+    name: audio-backend-worker
+    env: docker
+    rootDir: backend
+    plan: free
+    dockerCommand: npm run start:worker
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false

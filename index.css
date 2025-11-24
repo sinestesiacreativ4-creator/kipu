@@ -1,0 +1,64 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Global Styles */
+body {
+  @apply antialiased selection:bg-primary/20 selection:text-primary;
+}
+
+/* Typography Overrides */
+h1, h2, h3, h4, h5, h6 {
+  @apply font-display tracking-tight;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-stone-300 dark:bg-stone-700 rounded-full border-2 border-bone dark:border-darkbg;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-stone-400 dark:bg-stone-600;
+}
+
+/* Glassmorphism Utilities */
+.glass {
+  @apply bg-white/70 dark:bg-darkbg/70 backdrop-blur-md border border-white/20 dark:border-white/10 shadow-sm;
+}
+
+.glass-card {
+  @apply bg-white dark:bg-surface-dark border border-stone-200 dark:border-stone-700 shadow-sm hover:shadow-md transition-all duration-300;
+}
+
+/* Animations */
+.animate-spin-slow {
+  animation: spin 3s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Gradient Text */
+.text-gradient-gold {
+  @apply bg-clip-text text-transparent bg-gradient-to-r from-gold-dark via-gold to-gold-light;
+}
+
+/* Beta Badge */
+.beta-badge {
+  @apply px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white bg-gradient-to-r from-primary to-orange-600 rounded-full shadow-sm ml-2;
+}

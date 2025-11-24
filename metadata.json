@@ -1,0 +1,7 @@
+{
+  "name": "Asesorías Étnicas",
+  "description": "Herramienta de documentación auditiva inteligente para comunidades y asesorías legales, potenciada por Gemini AI.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
