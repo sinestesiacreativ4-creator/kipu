@@ -51,12 +51,25 @@ export const uploadService = {
      * 3. Notificar al backend para iniciar procesamiento
      */
     async notifyUploadComplete(filePath: string, recordingId: string, userId: string, organizationId: string): Promise<void> {
+        console.log('[UploadService] Calling notifyUploadComplete with:', { filePath, recordingId, userId, organizationId });
+        console.log('[UploadService] Backend URL:', `${BACKEND_URL}/upload-complete`);
+
         const response = await fetch(`${BACKEND_URL}/upload-complete`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ filePath, recordingId, userId, organizationId })
         });
 
-        if (!response.ok) throw new Error('Failed to notify upload completion');
+        console.log('[UploadService] Response status:', response.status);
+        console.log('[UploadService] Response ok:', response.ok);
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error('[UploadService] Error response:', errorText);
+            throw new Error(`Failed to notify upload completion: ${response.status} - ${errorText}`);
+        }
+
+        const result = await response.json();
+        console.log('[UploadService] Success response:', result);
     }
 };

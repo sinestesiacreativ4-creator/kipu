@@ -51,6 +51,22 @@ export const UploadController = {
 
             console.log('[API] Received upload complete notification:', { filePath, recordingId, userId, organizationId });
 
+            // Validate required fields
+            if (!filePath || !recordingId || !userId || !organizationId) {
+                const missing = [];
+                if (!filePath) missing.push('filePath');
+                if (!recordingId) missing.push('recordingId');
+                if (!userId) missing.push('userId');
+                if (!organizationId) missing.push('organizationId');
+
+                console.error('[API] Missing required fields:', missing);
+                return res.status(400).json({
+                    error: 'Missing required fields',
+                    missing,
+                    received: { filePath, recordingId, userId, organizationId }
+                });
+            }
+
             // Validar que el archivo realmente existe en Supabase (Opcional pero recomendado)
             // const { data } = await supabase.storage.from('recordings').list(userId);
 
@@ -87,8 +103,9 @@ export const UploadController = {
             });
 
         } catch (error: any) {
-            console.error('Error queueing job:', error);
-            res.status(500).json({ error: error.message });
+            console.error('[API] Error queueing job:', error);
+            console.error('[API] Error stack:', error.stack);
+            res.status(500).json({ error: error.message, stack: error.stack });
         }
     }
 };
