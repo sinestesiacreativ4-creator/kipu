@@ -1,6 +1,6 @@
 import { Recording } from '../types';
 
-const BACKEND_URL = '/api';
+const BACKEND_URL = 'https://kipu-backend-cick.onrender.com/api';
 
 export const uploadService = {
     /**

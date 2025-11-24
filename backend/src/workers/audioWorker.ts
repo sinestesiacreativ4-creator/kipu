@@ -73,7 +73,7 @@ async function processAudioWithAI(signedUrl: string, jobId: string): Promise<any
         }
 
         console.log(`[AI Engine] File ready. Generating analysis...`);
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" }); // 1.5 Flash es excelente para long context
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-001" }); // 1.5 Flash es excelente para long context
 
         const prompt = `
       Actúa como un asistente experto en transcripción y documentación. Analiza esta grabación completa.

@@ -51,6 +51,38 @@ const DetailView: React.FC<DetailViewProps> = ({ recording, onBack, onReanalyze 
     );
   }
 
+  if (recording.status === RecordingStatus.ERROR) {
+    return (
+      <div className="flex flex-col items-center justify-center h-screen text-center p-8">
+        <div className="w-16 h-16 bg-red-100 text-red-500 rounded-full flex items-center justify-center mb-6">
+          <RefreshCw size={32} />
+        </div>
+        <h2 className="text-2xl font-bold mb-2 text-stone-800 dark:text-white">Hubo un error en el análisis</h2>
+        <p className="text-stone-500 mb-8 max-w-md">
+          La IA no pudo procesar este archivo. Puede deberse a un error temporal o al formato del archivo.
+        </p>
+        <div className="flex gap-4">
+          <button
+            onClick={onBack}
+            className="px-6 py-3 text-stone-600 hover:bg-stone-100 dark:text-stone-300 dark:hover:bg-stone-800 rounded-xl transition-colors font-medium"
+          >
+            Volver
+          </button>
+          {onReanalyze && (
+            <button
+              onClick={handleReanalyze}
+              disabled={isReanalyzing}
+              className="flex items-center gap-2 px-6 py-3 bg-primary hover:bg-primary-hover text-white rounded-xl shadow-lg shadow-primary/20 transition-all hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+            >
+              <RefreshCw size={20} className={isReanalyzing ? 'animate-spin' : ''} />
+              {isReanalyzing ? 'Reintentando...' : 'Reintentar Análisis'}
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   if (!analysis) {
     return (
       <div className="p-8 text-center">
