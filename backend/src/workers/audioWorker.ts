@@ -167,3 +167,28 @@ const worker = new Worker<AudioJobData>('audio-processing-queue', async (job: Jo
 }, { connection });
 
 console.log('[Worker] Audio Processing Worker Started (Powered by Gemini 1.5)...');
+
+// Event listeners para debug
+worker.on('ready', () => {
+    console.log('[Worker] Worker is ready and waiting for jobs');
+});
+
+worker.on('active', (job) => {
+    console.log(`[Worker] Job ${job.id} is now active`);
+});
+
+worker.on('failed', (job, err) => {
+    console.error(`[Worker] Job ${job?.id} failed with error:`, err.message);
+});
+
+worker.on('completed', (job) => {
+    console.log(`[Worker] Job ${job.id} completed successfully`);
+});
+
+connection.on('connect', () => {
+    console.log('[Worker] Redis connection established');
+});
+
+connection.on('error', (err) => {
+    console.error('[Worker] Redis connection error:', err);
+});

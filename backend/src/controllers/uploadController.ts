@@ -49,12 +49,14 @@ export const UploadController = {
         try {
             const { filePath, recordingId, userId, organizationId } = req.body;
 
+            console.log('[API] Received upload complete notification:', { filePath, recordingId, userId, organizationId });
+
             // Validar que el archivo realmente existe en Supabase (Opcional pero recomendado)
             // const { data } = await supabase.storage.from('recordings').list(userId);
 
             // 3. Meter el trabajo a la cola (Background Job)
             // Esto responde INMEDIATAMENTE al frontend, no bloquea.
-            await audioQueue.add('process-audio', {
+            const job = await audioQueue.add('process-audio', {
                 filePath,
                 recordingId,
                 userId,
@@ -68,11 +70,15 @@ export const UploadController = {
                 removeOnComplete: true
             });
 
+            console.log(`[API] Job ${job.id} added to queue for recording ${recordingId}`);
+
             // Actualizar estado en DB a "QUEUED"
             await supabase
                 .from('recordings')
                 .update({ status: 'QUEUED' })
                 .eq('id', recordingId);
+
+            console.log(`[API] Recording ${recordingId} status updated to QUEUED`);
 
             res.json({
                 success: true,

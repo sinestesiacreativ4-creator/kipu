@@ -14,6 +14,7 @@ const DetailView: React.FC<DetailViewProps> = ({ recording, onBack, onReanalyze 
   const [activeTab, setActiveTab] = useState<'summary' | 'transcript' | 'chat'>('summary');
   const [showExportModal, setShowExportModal] = useState(false);
   const [isReanalyzing, setIsReanalyzing] = useState(false);
+  const [showTimeout, setShowTimeout] = useState(false);
   const audioRef = useRef<HTMLAudioElement>(null);
   const [exportOpts, setExportOpts] = useState<ExportOptions>({
     includeSummary: true,
@@ -41,17 +42,29 @@ const DetailView: React.FC<DetailViewProps> = ({ recording, onBack, onReanalyze 
     setShowExportModal(false);
   };
 
-  if (recording.status === RecordingStatus.PROCESSING) {
+  // Timeout de seguridad: si lleva más de 5 minutos procesando, mostrar error
+  React.useEffect(() => {
+    let timer: NodeJS.Timeout;
+    if (recording.status === RecordingStatus.PROCESSING) {
+      timer = setTimeout(() => {
+        setShowTimeout(true);
+      }, 300000); // 5 minutos
+    }
+    return () => clearTimeout(timer);
+  }, [recording.status]);
+
+  if (recording.status === RecordingStatus.PROCESSING && !showTimeout) {
     return (
       <div className="flex flex-col items-center justify-center h-screen text-center p-8">
         <div className="w-16 h-16 border-4 border-primary border-t-transparent rounded-full animate-spin mb-6"></div>
         <h2 className="text-2xl font-bold mb-2">La IA está procesando el audio...</h2>
-        <p className="text-stone-500">Identificando hablantes, resumiendo puntos clave y extrayendo tareas.</p>
+        <p className="text-stone-500 mb-4">Identificando hablantes, resumiendo puntos clave y extrayendo tareas.</p>
+        <p className="text-xs text-stone-400">Esto puede tomar unos minutos dependiendo de la duración.</p>
       </div>
     );
   }
 
-  if (recording.status === RecordingStatus.ERROR) {
+  if (recording.status === RecordingStatus.ERROR || showTimeout) {
     return (
       <div className="flex flex-col items-center justify-center h-screen text-center p-8">
         <div className="w-16 h-16 bg-red-100 text-red-500 rounded-full flex items-center justify-center mb-6">

@@ -285,19 +285,9 @@ const AppContent = () => {
           console.log('[Polling] Checking for updates...');
           const updatedRecordings = await db.getRecordings(currentUser.id, currentOrg.id);
 
-          // Only update if status changed to prevent UI flicker
-          setRecordings(prev => {
-            const hasChanges = updatedRecordings.some(newRec => {
-              const oldRec = prev.find(p => p.id === newRec.id);
-              return oldRec && oldRec.status !== newRec.status;
-            });
-
-            if (hasChanges) {
-              console.log('[Polling] Status change detected! Updating UI.');
-              return updatedRecordings;
-            }
-            return prev;
-          });
+          // Always update to ensure we catch any status changes or errors
+          // The React diffing algorithm will handle the DOM updates efficiently
+          setRecordings(updatedRecordings);
         } catch (err) {
           console.error('[Polling] Error fetching updates:', err);
         }
