@@ -2,6 +2,8 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { UploadController } from './controllers/uploadController';
+// Import worker to start it in the same process
+import './workers/audioWorker';
 
 dotenv.config();
 
@@ -24,5 +26,5 @@ app.get('/health', (req, res) => res.send('Audio Processing Service OK'));
 
 app.listen(PORT, () => {
     console.log(`[Server] Backend running on port ${PORT}`);
-    console.log(`[Server] Queue system ready`);
+    console.log(`[Server] Queue system ready (Worker started in background)`);
 });

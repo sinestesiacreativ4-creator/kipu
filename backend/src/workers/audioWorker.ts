@@ -8,25 +8,8 @@ import path from 'path';
 import https from 'https';
 import dotenv from 'dotenv';
 import { AudioJobData } from '../services/queue';
-import express from 'express';
 
 dotenv.config();
-
-// --- HEALTH CHECK SERVER (Para Render) ---
-const app = express();
-const port = process.env.PORT || 3001;
-
-app.get('/', (req, res) => {
-    res.send('Audio Worker is running');
-});
-
-app.get('/health', (req, res) => {
-    res.status(200).send('OK');
-});
-
-app.listen(port, () => {
-    console.log(`[Worker] Health check server listening on port ${port}`);
-});
 
 // --- CONFIGURACIÓN ---
 const connection = new IORedis(process.env.REDIS_URL || 'redis://localhost:6379', {
