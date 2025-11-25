@@ -1,4 +1,3 @@
-```json
 {
     "compilerOptions": {
         "target": "es2016",
@@ -19,4 +18,3 @@
         "prisma"
     ]
 }
-```
