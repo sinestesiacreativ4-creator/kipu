@@ -45,7 +45,19 @@ const ProfileSelector: React.FC<ProfileSelectorProps> = ({ profiles, onSelect, o
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-bone dark:bg-stone-950 p-6">
       <div className="max-w-4xl w-full">
-        <div className="text-center mb-12">
+        <div className="text-center mb-12 relative">
+          <button
+            onClick={() => {
+              if (confirm('¿Cerrar sesión de organización?')) {
+                localStorage.clear();
+                sessionStorage.clear();
+                window.location.reload();
+              }
+            }}
+            className="absolute top-0 right-0 text-stone-400 hover:text-red-500 text-sm font-medium transition-colors"
+          >
+            Cerrar Sesión
+          </button>
           <h1 className="text-4xl font-bold text-stone-900 dark:text-white mb-4 tracking-tight">
             <span className="text-[#D4AF37] drop-shadow-sm">{organizationName || 'Asesorías Étnicas'}</span>
           </h1>

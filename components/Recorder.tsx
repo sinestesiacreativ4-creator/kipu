@@ -79,6 +79,9 @@ const Recorder: React.FC<RecorderProps> = ({ onComplete, onCancel }) => {
       setStatus(RecordingStatus.RECORDING);
       setShowWarning(false);
 
+      // Reset duration to ensure clean start
+      setDuration(0);
+
       // Global Duration Timer
       timerRef.current = window.setInterval(() => {
         setDuration(prev => prev + 1);
@@ -182,19 +185,36 @@ const Recorder: React.FC<RecorderProps> = ({ onComplete, onCancel }) => {
     action();
   };
 
+  const hasStartedRef = useRef(false);
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
-      if (segmentTimerRef.current) clearInterval(segmentTimerRef.current);
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+      if (segmentTimerRef.current) {
+        clearInterval(segmentTimerRef.current);
+        segmentTimerRef.current = null;
+      }
       if (stream) stream.getTracks().forEach(track => track.stop());
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Initial start
+  // Initial start - Prevent double execution in React StrictMode
   useEffect(() => {
+    if (hasStartedRef.current) return;
+    hasStartedRef.current = true;
+
     startRecording();
+
+    return () => {
+      // Cleanup if component unmounts during recording
+      if (timerRef.current) clearInterval(timerRef.current);
+      if (segmentTimerRef.current) clearInterval(segmentTimerRef.current);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -211,9 +231,53 @@ const Recorder: React.FC<RecorderProps> = ({ onComplete, onCancel }) => {
         </div>
       )}
 
-      {/* Timer Display */}
-      <div className="text-7xl md:text-8xl font-mono font-bold text-stone-800 dark:text-stone-100 mb-6 tracking-tighter tabular-nums drop-shadow-sm">
-        {formatTime(duration)}
+      {/* Timer Display - Enhanced */}
+      <div className="mb-8">
+        <div className="flex items-center justify-center gap-2">
+          {/* Minutes */}
+          <div className="flex flex-col items-center">
+            <div className="text-8xl md:text-9xl font-mono font-black text-stone-800 dark:text-white tracking-tight tabular-nums leading-none drop-shadow-lg">
+              {Math.floor(duration / 60).toString().padStart(2, '0')}
+            </div>
+            <span className="text-xs font-semibold text-stone-400 dark:text-stone-500 uppercase tracking-wider mt-2">
+              Min
+            </span>
+          </div>
+
+          {/* Separator */}
+          <div className="text-7xl md:text-8xl font-mono font-black text-stone-400 dark:text-stone-600 mb-6">
+            :
+          </div>
+
+          {/* Seconds */}
+          <div className="flex flex-col items-center">
+            <div className="text-8xl md:text-9xl font-mono font-black text-stone-800 dark:text-white tracking-tight tabular-nums leading-none drop-shadow-lg">
+              {(duration % 60).toString().padStart(2, '0')}
+            </div>
+            <span className="text-xs font-semibold text-stone-400 dark:text-stone-500 uppercase tracking-wider mt-2">
+              Seg
+            </span>
+          </div>
+        </div>
+
+        {/* Duration indicator bar */}
+        <div className="mt-6 w-full max-w-md mx-auto">
+          <div className="h-1.5 bg-stone-200 dark:bg-stone-700 rounded-full overflow-hidden">
+            <div
+              className={`h-full transition-all duration-1000 ${status === RecordingStatus.RECORDING
+                ? 'bg-gradient-to-r from-primary via-red-500 to-primary animate-pulse'
+                : 'bg-stone-400'
+                }`}
+              style={{
+                width: `${Math.min((duration / (60 * 30)) * 100, 100)}%` // Max 30 minutes
+              }}
+            />
+          </div>
+          <div className="flex justify-between mt-1 text-xs text-stone-400 dark:text-stone-500">
+            <span>0:00</span>
+            <span>30:00</span>
+          </div>
+        </div>
       </div>
 
       {/* Waveform Visualization */}

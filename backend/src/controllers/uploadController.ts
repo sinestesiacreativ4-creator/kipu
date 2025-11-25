@@ -1,111 +1,132 @@
 import { Request, Response } from 'express';
-import { createClient } from '@supabase/supabase-js';
 import { audioQueue } from '../services/queue';
 import dotenv from 'dotenv';
+import multer from 'multer';
+import IORedis from 'ioredis';
 
 dotenv.config();
 
-const supabase = createClient(
-    process.env.SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY! // IMPORTANTE: Usar Service Role Key para permisos de admin
-);
+// Redis connection for file storage
+const redis = new IORedis(process.env.REDIS_URL || 'redis://localhost:6379', {
+    maxRetriesPerRequest: null,
+});
+
+// Configure Multer for memory storage
+const upload = multer({
+    storage: multer.memoryStorage(),
+    limits: {
+        fileSize: 20 * 1024 * 1024, // 20MB limit
+    }
+});
 
 export const UploadController = {
+    // Middleware for handling file upload
+    uploadMiddleware: upload.single('file'),
+
     /**
-     * 1. Generar URL firmada para subida directa (Direct-to-Storage)
-     * Evita que el archivo pase por nuestro servidor Node.js
+     * Upload file directly to Redis and queue for processing
+     * Replaces Supabase Storage flow
      */
-    async getUploadUrl(req: Request, res: Response) {
+    async uploadToRedis(req: Request, res: Response) {
         try {
-            const { fileName, fileType } = req.body;
-            const userId = req.body.userId; // En prod, obtener de req.user (Auth Middleware)
+            if (!req.file) {
+                return res.status(400).json({ error: 'No file uploaded' });
+            }
 
-            const filePath = `${userId}/${Date.now()}_${fileName}`;
+            const { recordingId, userId, organizationId } = req.body;
 
-            // Crear URL firmada para subir el archivo (válida por 1 hora)
-            const { data, error } = await supabase
-                .storage
-                .from('recordings')
-                .createSignedUploadUrl(filePath);
+            console.log(`[API] Received file upload for recording ${recordingId} (${req.file.size} bytes)`);
 
-            if (error) throw error;
+            // 1. Store file in Redis (Expire in 1 hour)
+            const fileKey = `file:${recordingId}`;
+
+            // Store as Buffer (binary)
+            await redis.set(fileKey, req.file.buffer);
+            await redis.expire(fileKey, 3600); // 1 hour TTL
+
+            console.log(`[API] File stored in Redis with key: ${fileKey}`);
+
+            // 2. Create recording entry in Redis
+            const recording = {
+                id: recordingId,
+                userId,
+                organizationId,
+                audioBase64: null,
+                audioKey: fileKey,
+                duration: 0,
+                createdAt: Date.now(),
+                status: 'PROCESSING',
+                markers: [],
+                analysis: {
+                    title: 'Procesando...',
+                    category: 'Procesando',
+                    summary: ['Subiendo archivo...'],
+                    actionItems: [],
+                    transcript: [],
+                    tags: []
+                }
+            };
+
+            const { redisDb } = await import('../services/redisDb');
+            await redisDb.saveRecording(recording);
+
+            // 3. Queue job
+            const job = await audioQueue.add('process-audio-redis', {
+                fileKey,
+                recordingId,
+                userId,
+                organizationId,
+                mimeType: req.file.mimetype
+            }, {
+                attempts: 3,
+                removeOnComplete: true
+            });
+
+            console.log(`[API] Job ${job.id} queued`);
+
+            // 4. Initialize status in Redis
+            await redis.hset(`status:${recordingId}`, {
+                status: 'QUEUED',
+                progress: '0'
+            });
+            await redis.expire(`status:${recordingId}`, 86400); // 24 hours
 
             res.json({
-                uploadUrl: data.signedUrl,
-                filePath: data.path,
-                token: data.token // Token necesario para la subida TUS o directa
+                success: true,
+                message: 'File uploaded and queued successfully',
+                jobId: job.id
             });
+
         } catch (error: any) {
-            console.error('Error generating upload URL:', error);
+            console.error('[API] Error in uploadToRedis:', error);
             res.status(500).json({ error: error.message });
         }
     },
 
     /**
-     * 2. Webhook / Notificación de subida completada
-     * El frontend llama a esto cuando termina de subir el archivo a Supabase
+     * Get processing status from Redis
      */
-    async notifyUploadComplete(req: Request, res: Response) {
+    async getStatus(req: Request, res: Response) {
         try {
-            const { filePath, recordingId, userId, organizationId } = req.body;
+            const { recordingId } = req.params;
+            const status = await redis.hgetall(`status:${recordingId}`);
 
-            console.log('[API] Received upload complete notification:', { filePath, recordingId, userId, organizationId });
-
-            // Validate required fields
-            if (!filePath || !recordingId || !userId || !organizationId) {
-                const missing = [];
-                if (!filePath) missing.push('filePath');
-                if (!recordingId) missing.push('recordingId');
-                if (!userId) missing.push('userId');
-                if (!organizationId) missing.push('organizationId');
-
-                console.error('[API] Missing required fields:', missing);
-                return res.status(400).json({
-                    error: 'Missing required fields',
-                    missing,
-                    received: { filePath, recordingId, userId, organizationId }
-                });
+            if (!status || Object.keys(status).length === 0) {
+                return res.status(404).json({ error: 'Status not found' });
             }
 
-            // Validar que el archivo realmente existe en Supabase (Opcional pero recomendado)
-            // const { data } = await supabase.storage.from('recordings').list(userId);
+            // Parse analysis if it exists
+            if (status.analysis) {
+                try {
+                    status.analysis = JSON.parse(status.analysis);
+                } catch (e) {
+                    // keep as string if parse fails
+                }
+            }
 
-            // 3. Meter el trabajo a la cola (Background Job)
-            // Esto responde INMEDIATAMENTE al frontend, no bloquea.
-            const job = await audioQueue.add('process-audio', {
-                filePath,
-                recordingId,
-                userId,
-                organizationId
-            }, {
-                attempts: 3, // Reintentar 3 veces si falla
-                backoff: {
-                    type: 'exponential',
-                    delay: 5000
-                },
-                removeOnComplete: true
-            });
-
-            console.log(`[API] Job ${job.id} added to queue for recording ${recordingId}`);
-
-            // Actualizar estado en DB a "QUEUED"
-            await supabase
-                .from('recordings')
-                .update({ status: 'QUEUED' })
-                .eq('id', recordingId);
-
-            console.log(`[API] Recording ${recordingId} status updated to QUEUED`);
-
-            res.json({
-                success: true,
-                message: 'Processing job queued successfully',
-                jobId: recordingId
-            });
-
+            res.json(status);
         } catch (error: any) {
-            console.error('[API] Error queueing job:', error);
-            console.error('[API] Error stack:', error.stack);
-            res.status(500).json({ error: error.message, stack: error.stack });
+            res.status(500).json({ error: error.message });
         }
     }
 };

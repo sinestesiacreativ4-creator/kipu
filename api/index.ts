@@ -14,8 +14,8 @@ const audioQueue = new Queue('audio-processing-queue', { connection });
 
 // --- CONFIGURACIÓN SUPABASE ---
 const supabase = createClient(
-    'https://xchupaikazvkwivxqcfn.supabase.co',
-    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhjaHVwYWlrYXp2a3dpdnhxY2ZuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM2ODM0NTYsImV4cCI6MjA3OTI1OTQ1Nn0.I-AQdSjDAEwVFJuF7BHGj3TA3kBcwat_WCUd8qd6rNg'
+    'https://enuwmaxkigsgnftcjxob.supabase.co',
+    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVudXdtYXhraWdzZ25mdGNqeG9iIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM2ODIzNTIsImV4cCI6MjA3OTI1ODM1Mn0.0wG0e7CLnIQz6RRePpwwDWpiphXH3zsh-qM8xMgAV2Y'
 );
 
 // --- CONTROLADORES ---

@@ -1,14 +1,8 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
 
-/* Global Styles */
-body {
-  @apply antialiased selection:bg-primary/20 selection:text-primary;
-}
-
-/* Typography Overrides */
-h1, h2, h3, h4, h5, h6 {
+h4,
+h5,
+h6 {
   @apply font-display tracking-tight;
 }
 
@@ -48,6 +42,7 @@ h1, h2, h3, h4, h5, h6 {
   from {
     transform: rotate(0deg);
   }
+
   to {
     transform: rotate(360deg);
   }

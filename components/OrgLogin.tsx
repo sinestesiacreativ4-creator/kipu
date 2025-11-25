@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { supabaseDb as db } from '../services/supabaseDb';
+import { api } from '../services/api';
 import { Organization } from '../types';
 import { ArrowRight, Loader2 } from 'lucide-react';
 
@@ -20,7 +20,7 @@ const OrgLogin: React.FC<OrgLoginProps> = ({ onOrgSelected }) => {
         setError(null);
 
         try {
-            const org = await db.getOrganizationBySlug(slug.toLowerCase().trim());
+            const org = await api.getOrganizationBySlug(slug.toLowerCase().trim());
 
             if (org) {
                 onOrgSelected(org);

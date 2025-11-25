@@ -1,6 +1,6 @@
 // Version: 2.0.1 - Fixed upload functionality
 import React, { useState, useEffect } from 'react';
-import { Mic, Search, Clock, FileAudio, LogOut, Trash2, Loader2, Building2, Upload } from 'lucide-react';
+import { Mic, Search, Clock, FileAudio, LogOut, Trash2, Loader2, Building2, Upload, Folder } from 'lucide-react';
 import Recorder from './components/Recorder';
 import DetailView from './components/DetailView';
 import ProfileSelector from './components/ProfileSelector';
@@ -10,8 +10,7 @@ import UploadProgress from './components/UploadProgress';
 import { Recording, RecordingStatus, Marker, UserProfile, Organization } from './types';
 import { blobToBase64, formatTime, generateId } from './utils';
 import { analyzeAudio } from './services/geminiService';
-import { supabaseDb as db } from './services/supabaseDb';
-import { useAuth } from './hooks/useAuth';
+import { api } from './services/api';
 import { uploadService } from './services/uploadService';
 
 // --- Components defined inline for simplicity of the file structure ---
@@ -188,8 +187,7 @@ const Dashboard = ({
 // --- Main App Component ---
 
 const AppContent = () => {
-  // Authentication
-  const { user: authUser, session, loading: authLoading, signOut } = useAuth();
+  // No Supabase Auth - Simple org/profile based auth
   const [currentOrg, setCurrentOrg] = useState<Organization | null>(null);
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
   const [profiles, setProfiles] = useState<UserProfile[]>([]);
@@ -237,10 +235,15 @@ const AppContent = () => {
       setIsLoading(true);
       try {
         // Load profiles from CURRENT organization
-        const fetchedProfiles = await db.getProfiles(currentOrg.id);
+        const fetchedProfiles = await api.getProfiles(currentOrg.id);
         setProfiles(fetchedProfiles);
       } catch (err) {
         console.error("Failed to initialize DB:", err);
+        // If fetching profiles fails (likely due to invalid org ID from old DB), reset state
+        console.log("Resetting invalid organization state...");
+        setCurrentOrg(null);
+        localStorage.removeItem('kipu_org');
+        localStorage.removeItem('kipu_user');
       } finally {
         setIsLoading(false);
       }
@@ -259,7 +262,7 @@ const AppContent = () => {
     const loadUserRecordings = async () => {
       setIsLoadingRecordings(true);
       try {
-        const userRecordings = await db.getRecordings(currentUser.id, currentOrg.id);
+        const userRecordings = await api.getRecordings(currentUser.id, currentOrg.id);
         setRecordings(userRecordings);
       } catch (err) {
         console.error("Error loading recordings:", err);
@@ -283,7 +286,7 @@ const AppContent = () => {
       const intervalId = setInterval(async () => {
         try {
           console.log('[Polling] Checking for updates...');
-          const updatedRecordings = await db.getRecordings(currentUser.id, currentOrg.id);
+          const updatedRecordings = await api.getRecordings(currentUser.id, currentOrg.id);
 
           // Always update to ensure we catch any status changes or errors
           // The React diffing algorithm will handle the DOM updates efficiently
@@ -302,18 +305,28 @@ const AppContent = () => {
       // Force profile to belong to Current Org
       if (!currentOrg) return;
       const publicProfile = { ...profile, organizationId: currentOrg.id };
-      await db.addProfile(publicProfile);
+      await api.createProfile(publicProfile);
       setProfiles(prev => [...prev, publicProfile]);
       setCurrentUser(publicProfile);
-    } catch (err) {
+      setCurrentUser(publicProfile);
+    } catch (err: any) {
       console.error("Error creating profile:", err);
-      alert("Error al crear el perfil.");
+
+      // Check for foreign key violation (invalid organization ID)
+      if (err.code === '23503' && err.message?.includes('organizations')) {
+        alert("Tu sesión de organización ha expirado o no es válida. Por favor ingresa el código nuevamente.");
+        setCurrentOrg(null);
+        localStorage.removeItem('kipu_org');
+        localStorage.removeItem('kipu_user');
+      } else {
+        alert("Error al crear el perfil: " + (err.message || "Error desconocido"));
+      }
     }
   };
 
   const handleDeleteProfile = async (profileId: string) => {
     try {
-      await db.deleteProfile(profileId);
+      await api.deleteProfile(profileId);
       setProfiles(prev => prev.filter(p => p.id !== profileId));
       // If the deleted profile was the current user (unlikely from UI but possible), logout
       if (currentUser?.id === profileId) {
@@ -329,7 +342,6 @@ const AppContent = () => {
     setCurrentUser(null);
     setRecordings([]);
     setSelectedRecordingId(null);
-    signOut(); // Sign out from Supabase Auth
   };
 
   const handleOrgSelected = (org: Organization) => {
@@ -348,7 +360,7 @@ const AppContent = () => {
 
   const handleDeleteRecording = async (id: string) => {
     try {
-      await db.deleteRecording(id);
+      await api.deleteRecording(id);
       setRecordings(prev => prev.filter(r => r.id !== id));
       if (selectedRecordingId === id) {
         setSelectedRecordingId(null);
@@ -406,139 +418,128 @@ const AppContent = () => {
     setSelectedRecordingId(id);
     setView('detail');
 
-    // Async Save to DB (Upload to Storage)
+    // Upload to backend
     try {
       setUploadProgress(0);
       setUploadStatus('uploading');
 
-      // Try async backend first
-      try {
-        console.log("[App] Attempting async backend upload...");
-        const { uploadUrl, filePath, token } = await uploadService.getUploadUrl(`${id}.webm`, 'audio/webm', currentUser.id);
+      console.log("[App] Uploading to Redis backend...");
+      await uploadService.uploadRecording(blob, id, currentUser.id, currentUser.organizationId, (p) => setUploadProgress(p));
 
-        await uploadService.uploadFileToSupabase(uploadUrl, blob, token, (p) => setUploadProgress(p));
-
-        await uploadService.notifyUploadComplete(filePath, id, currentUser.id, currentUser.organizationId);
-
-        console.log("[App] Async upload successful");
-
-        const completedRecording = { ...newRecording, status: RecordingStatus.PROCESSING };
-        setRecordings(prev => prev.map(rec => rec.id === id ? completedRecording : rec));
-
-      } catch (backendError) {
-        console.warn("[App] Backend unavailable, using direct upload:", backendError);
-
-        // Fallback: Direct upload to Supabase
-        await db.saveRecording(newRecording, blob, (progress) => {
-          setUploadProgress(progress);
-        });
-      }
-
+      console.log("[App] Upload successful. Starting polling...");
       setUploadStatus('success');
       setTimeout(() => setUploadStatus(null), 1500);
-    } catch (err) {
-      console.error("[App] Failed to save recording:", err);
-      setUploadStatus('error');
-      setTimeout(() => setUploadStatus(null), 3000);
-    }
 
-    // 2. Trigger AI Processing
-    try {
-      setProcessingProgress({ current: 0, total: segments.length });
-      console.log('[App] Starting AI analysis...');
-
-      const analysis = await analyzeAudio(segments, markers.length, (current, total) => {
-        setProcessingProgress({ current, total });
+      // Poll for AI processing result
+      uploadService.pollStatus(id, (status, analysis) => {
+        if (status === 'COMPLETED' && analysis) {
+          const completedRecording = {
+            ...newRecording,
+            status: RecordingStatus.COMPLETED,
+            analysis: typeof analysis === 'string' ? JSON.parse(analysis) : analysis
+          };
+          setRecordings(prev => prev.map(rec => rec.id === id ? completedRecording : rec));
+        } else if (status === 'ERROR') {
+          const errorRecording = {
+            ...newRecording,
+            status: RecordingStatus.OFFLINE,
+            analysis: {
+              title: "Error en Procesamiento",
+              category: "Error",
+              summary: [`Error: ${analysis || 'Unknown error'}`],
+              actionItems: [],
+              transcript: [],
+              tags: ["Error"]
+            }
+          };
+          setRecordings(prev => prev.map(rec => rec.id === id ? errorRecording : rec));
+        }
       });
 
-      const updatedRecording = {
+    } catch (err) {
+      console.error("[App] Failed to upload recording:", err);
+      setUploadStatus('error');
+      setTimeout(() => setUploadStatus(null), 3000);
+
+      // Save offline
+      const offlineRecording = {
         ...newRecording,
-        status: RecordingStatus.COMPLETED,
-        analysis
+        status: RecordingStatus.OFFLINE,
+        analysis: {
+          title: "Grabación Guardada (Offline)",
+          category: "Offline",
+          summary: ["No se pudo conectar con el servidor."],
+          actionItems: [],
+          transcript: [],
+          tags: ["Offline"]
+        }
       };
-
-      setRecordings(prev => prev.map(rec => rec.id === id ? updatedRecording : rec));
-      await db.updateRecordingAnalysis(id, analysis, RecordingStatus.COMPLETED);
-
-    } catch (error) {
-      console.error("[App] AI Processing Failed:", error);
-
-      const fallbackAnalysis = {
-        title: "Grabación Guardada (Modo Offline)",
-        category: "General",
-        summary: [
-          "La IA no pudo procesar el audio en este momento.",
-          "Se ha guardado la grabación original para referencia futura.",
-          "Puedes editar este resumen manualmente."
-        ],
-        actionItems: ["Revisar grabación manualmente", "Verificar conexión a internet"],
-        tags: ["Offline", "Pendiente"],
-        transcript: [
-          { speaker: "Sistema", text: "Transcripción no disponible en modo offline.", timestamp: "00:00" }
-        ]
-      };
-
-      const completedRecording = {
-        ...newRecording,
-        status: RecordingStatus.COMPLETED,
-        analysis: fallbackAnalysis
-      };
-
-      setRecordings(prev => prev.map(rec => rec.id === id ? completedRecording : rec));
-      await db.saveRecording(completedRecording);
-    } finally {
-      setProcessingProgress(null);
+      setRecordings(prev => prev.map(rec => rec.id === id ? offlineRecording : rec));
     }
   };
 
   const handleReanalyze = async (recordingId: string) => {
     const recording = recordings.find(r => r.id === recordingId);
-    if (!recording || !recording.audioBase64) {
-      alert('No se pudo encontrar la grabación');
+    if (!recording || !recording.audioUrl) {
+      alert('No se pudo encontrar el audio de la grabación');
       return;
     }
 
     // Update to processing status
     const processingRecording = {
       ...recording,
-      status: RecordingStatus.PROCESSING
+      status: RecordingStatus.PROCESSING,
+      analysis: {
+        ...recording.analysis,
+        summary: ["Re-subiendo archivo para análisis..."]
+      }
     };
     setRecordings(prev => prev.map(rec => rec.id === recordingId ? processingRecording : rec));
 
     try {
-      // For re-analysis, we need to convert the base64 back to a blob to match the new signature
-      // This is a bit inefficient for re-analysis but necessary for the unified API
-      const blob = await (await fetch(`data:audio/webm;base64,${recording.audioBase64}`)).blob();
+      console.log('[Reanalyze] Fetching audio from URL:', recording.audioUrl);
 
-      setProcessingProgress({ current: 0, total: 1 });
-      const analysis = await analyzeAudio([blob], recording.markers?.length || 0, (current, total) => {
-        setProcessingProgress({ current, total });
+      // 1. Fetch the file from the URL (Supabase or otherwise)
+      const response = await fetch(recording.audioUrl);
+      if (!response.ok) throw new Error(`Failed to fetch audio: ${response.statusText}`);
+
+      const audioBlob = await response.blob();
+      console.log('[Reanalyze] Audio fetched. Size:', audioBlob.size);
+
+      // 2. Upload to Redis
+      await uploadService.uploadFileToRedis(audioBlob, recording.id, currentUser.id, currentOrg.id);
+
+      console.log('[Reanalyze] Uploaded to Redis. Polling...');
+
+      // 3. Poll for completion
+      uploadService.pollStatus(recording.id, (status, analysis) => {
+        if (status === 'COMPLETED' && analysis) {
+          const completedRecording = {
+            ...processingRecording,
+            status: RecordingStatus.COMPLETED,
+            analysis: analysis
+          };
+          setRecordings(prev => prev.map(rec => rec.id === recordingId ? completedRecording : rec));
+        } else if (status === 'ERROR') {
+          const errorRecording = {
+            ...processingRecording,
+            status: RecordingStatus.OFFLINE,
+            analysis: { ...processingRecording.analysis, summary: [`Error: ${analysis}`] }
+          };
+          setRecordings(prev => prev.map(rec => rec.id === recordingId ? errorRecording : rec));
+        }
       });
 
-      const completedRecording = {
-        ...recording,
-        status: RecordingStatus.COMPLETED,
-        analysis
-      };
-
-      // Actualizar UI inmediatamente
-      setRecordings(prev => prev.map(rec => rec.id === recordingId ? completedRecording : rec));
-
-      // Guardar en DB en segundo plano (no esperar, evita timeout bloqueante)
-      db.updateRecordingAnalysis(recordingId, analysis, RecordingStatus.COMPLETED)
-        .catch(err => console.error('Error guardando en DB (no crítico):', err));
-
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error during re-analysis:', error);
-      // Revert to offline status
-      const offlineRecording = {
+      alert(`Error al reanalizar: ${error.message}`);
+
+      const errorRecording = {
         ...recording,
-        status: RecordingStatus.OFFLINE
+        status: RecordingStatus.OFFLINE,
+        analysis: { ...recording.analysis, summary: [`Error: ${error.message}`] }
       };
-      setRecordings(prev => prev.map(rec => rec.id === recordingId ? offlineRecording : rec));
-      throw error;
-    } finally {
-      setProcessingProgress(null);
+      setRecordings(prev => prev.map(rec => rec.id === recordingId ? errorRecording : rec));
     }
   };
 
@@ -564,7 +565,7 @@ const AppContent = () => {
       analysis: {
         title: file.name,
         category: "Procesando",
-        summary: ["Subiendo archivo..."],
+        summary: ["Subiendo archivo al servidor..."],
         actionItems: [],
         transcript: [],
         tags: ["Subido"]
@@ -579,78 +580,12 @@ const AppContent = () => {
       setUploadProgress(0);
       setUploadStatus('uploading');
 
-      console.log('[Upload] Uploading directly to Supabase Storage...');
-      const filePath = `${currentUser.id}/${id}_${file.name}`;
+      console.log('[Upload] Uploading directly to Backend (Redis)...');
 
-      setUploadProgress(50);
-
-      const { data: uploadData, error: uploadError } = await db.supabase
-        .storage
-        .from('recordings')
-        .upload(filePath, file, {
-          cacheControl: '3600',
-          upsert: false
-        });
-
-      if (uploadError) {
-        console.error('[Upload] Supabase Storage Error:', uploadError);
-        console.error('[Upload] Error details:', {
-          message: uploadError.message,
-          filePath: filePath
-        });
-        throw new Error(`Upload failed: ${uploadError.message}`);
-      }
+      // 1. Upload to Redis via Backend
+      await uploadService.uploadFileToRedis(file, id, currentUser.id, currentUser.organizationId);
 
       setUploadProgress(100);
-      console.log('[Upload] File uploaded successfully to:', filePath);
-      setUploadStatus('success');
-      setTimeout(() => setUploadStatus(null), 1500);
-
-      // --- ASYNC BACKEND PROCESSING ---
-      // Instead of analyzing in browser (which fails for large files),
-      // we notify the backend worker to process it.
-
-      try {
-        console.log('[Upload] Notifying backend worker to process file...');
-        await uploadService.notifyUploadComplete(filePath, id, currentUser.id, currentUser.organizationId);
-        console.log('[Upload] Backend notified successfully. Job queued.');
-
-        // Update status to indicate backend processing
-        const queuedRecording = {
-          ...newRecording,
-          status: RecordingStatus.PROCESSING,
-          analysis: {
-            ...newRecording.analysis,
-            summary: ["Archivo subido. Procesando en la nube (esto puede tomar unos minutos)..."]
-          }
-        };
-        setRecordings(prev => prev.map(rec => rec.id === id ? queuedRecording : rec));
-
-      } catch (backendError) {
-        console.error('[Upload] Failed to notify backend:', backendError);
-        console.warn('[Upload] Falling back to browser processing (limited capability)...');
-
-        // Fallback: Browser processing (only works for small files)
-        setProcessingProgress({ current: 0, total: 1 });
-        const analysis = await analyzeAudio([file], 0, (current, total) => {
-          setProcessingProgress({ current, total });
-        });
-
-        const completedRecording = {
-          ...newRecording,
-          status: RecordingStatus.COMPLETED,
-          analysis
-        };
-        setRecordings(prev => prev.map(rec => rec.id === id ? completedRecording : rec));
-        await db.saveRecording(completedRecording);
-      }
-
-    } catch (err: any) {
-      console.error('[Upload] Error:', err);
-      const errorMsg = err.message || 'Error desconocido';
-      alert(`Error al subir el archivo: ${errorMsg}`);
-      setRecordings(prev => prev.filter(r => r.id !== id));
-      setUploadStatus('error');
       setTimeout(() => setUploadStatus(null), 3000);
     } finally {
       setProcessingProgress(null);
@@ -659,8 +594,18 @@ const AppContent = () => {
 
   const activeRecording = recordings.find(r => r.id === selectedRecordingId);
 
+  console.log('[App] Debug Selection:', {
+    selectedId: selectedRecordingId,
+    recordingsCount: recordings.length,
+    recordingIds: recordings.map(r => r.id),
+    found: !!activeRecording
+  });
+
+  console.log('[App] Render state:', { isLoading, currentOrg: !!currentOrg, currentUser: !!currentUser, view });
+
   // --- Loading State ---
   if (isLoading) {
+    console.log('[App] Rendering loading state');
     return (
       <div className="min-h-screen flex items-center justify-center bg-bone dark:bg-stone-950">
         <Loader2 className="animate-spin text-primary" size={48} />
@@ -668,22 +613,17 @@ const AppContent = () => {
     );
   }
 
-  // --- AUTH LOADING ---
-  if (authLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-bone dark:bg-darkbg">
-        <Loader2 size={48} className="animate-spin text-primary" />
-      </div>
-    );
-  }
+
 
   // --- ORG LOGIN SCREEN ---
   if (!currentOrg) {
+    console.log('[App] Rendering org login screen');
     return <OrgLogin onOrgSelected={handleOrgSelected} />;
   }
 
   // --- Profile Selection Gate: Must select a profile ---
   if (!currentUser) {
+    console.log('[App] Rendering profile selector');
     return (
       <ProfileSelector
         profiles={profiles}
@@ -694,6 +634,8 @@ const AppContent = () => {
       />
     );
   }
+
+  console.log('[App] Rendering main app');
 
   return (
     <div className="min-h-screen flex flex-col bg-bone dark:bg-darkbg text-stone-800 dark:text-stone-200 transition-colors duration-200">
@@ -713,7 +655,7 @@ const AppContent = () => {
               <p className="text-sm font-bold text-stone-900 dark:text-white leading-none">{currentUser.name}</p>
               <p className="text-xs text-stone-500 dark:text-stone-400">{currentUser.role}</p>
             </div>
-            <div className={`w - 9 h - 9 rounded - full ${currentUser.avatarColor} flex items - center justify - center text - white font - bold shadow - sm border - 2 border - white dark: border - stone - 800`}>
+            <div className={`w-9 h-9 rounded-full ${currentUser.avatarColor} flex items-center justify-center text-white font-bold shadow-sm border-2 border-white dark:border-stone-800`}>
               {currentUser.name.charAt(0).toUpperCase()}
             </div>
             <button
@@ -783,15 +725,39 @@ const AppContent = () => {
           />
         )}
 
-        {view === 'detail' && activeRecording && (
-          <DetailView
-            recording={activeRecording}
-            onBack={() => {
-              setSelectedRecordingId(null);
-              setView('dashboard');
-            }}
-            onReanalyze={handleReanalyze}
-          />
+        {view === 'detail' && (
+          activeRecording ? (
+            <DetailView
+              recording={activeRecording}
+              onBack={() => {
+                setSelectedRecordingId(null);
+                setView('dashboard');
+              }}
+              onReanalyze={handleReanalyze}
+            />
+          ) : (
+            <div className="flex flex-col items-center justify-center h-full p-8 text-center animate-fade-in">
+              <div className="w-16 h-16 bg-stone-100 dark:bg-stone-800 rounded-full flex items-center justify-center mb-4">
+                <Folder size={32} className="text-stone-400" />
+              </div>
+              <h3 className="text-xl font-bold text-stone-800 dark:text-white mb-2">Grabación no encontrada</h3>
+              <p className="text-stone-600 dark:text-stone-400 mb-6 max-w-md">
+                No pudimos encontrar la grabación que buscas. Es posible que se haya eliminado o que aún se esté procesando.
+              </p>
+              <button
+                onClick={() => setView('dashboard')}
+                className="px-6 py-3 bg-primary text-white rounded-full hover:bg-primary-hover transition-colors shadow-lg"
+              >
+                Volver al Inicio
+              </button>
+              <div className="mt-8 p-4 bg-stone-50 dark:bg-stone-900 rounded-lg text-xs text-stone-400 font-mono text-left">
+                <p>Debug Info:</p>
+                <p>ID: {selectedRecordingId || 'null'}</p>
+                <p>Recordings: {recordings.length}</p>
+                <p>Found: {activeRecording ? 'Yes' : 'No'}</p>
+              </div>
+            </div>
+          )
         )}
       </main>
 

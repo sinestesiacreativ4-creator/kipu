@@ -2,8 +2,8 @@ import { createClient } from '@supabase/supabase-js';
 import { UserProfile, Recording, Organization } from '../types';
 
 // Supabase credentials
-const SUPABASE_URL = 'https://xchupaikazvkwivxqcfn.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhjaHVwYWlrYXp2a3dpdnhxY2ZuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM2ODM0NTYsImV4cCI6MjA3OTI1OTQ1Nn0.I-AQdSjDAEwVFJuF7BHGj3TA3kBcwat_WCUd8qd6rNg';
+const SUPABASE_URL = 'https://enuwmaxkigsgnftcjxob.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVudXdtYXhraWdzZ25mdGNqeG9iIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM2ODIzNTIsImV4cCI6MjA3OTI1ODM1Mn0.0wG0e7CLnIQz6RRePpwwDWpiphXH3zsh-qM8xMgAV2Y';
 
 // ID de la organización demo (temporal hasta que implementemos auth)
 const DEMO_ORG_ID = '00000000-0000-0000-0000-000000000001';
@@ -41,7 +41,7 @@ export const supabaseDb = {
             const { data, error } = await supabase
                 .from('organizations')
                 .select('*')
-                .eq('slug', slug)
+                .eq('code', slug)
                 .single();
 
             if (error) throw error;
@@ -50,7 +50,7 @@ export const supabaseDb = {
                 id: data.id,
                 name: data.name,
                 subdomain: data.subdomain,
-                slug: data.slug,
+                slug: data.code,
                 logoUrl: data.logo_url,
                 createdAt: data.created_at ? new Date(data.created_at).getTime() : undefined
             } : null;
@@ -143,7 +143,7 @@ export const supabaseDb = {
                 id: r.id,
                 userId: r.user_id,
                 organizationId: r.organization_id,
-                audioBase64: r.audio_base64,
+                audioBase64: null, // We don't store base64 in DB anymore
                 audioUrl: r.audio_url,
                 duration: r.duration,
                 createdAt: r.created_at_ts,
@@ -227,7 +227,6 @@ export const supabaseDb = {
     async saveRecording(recording: Recording, audioBlob?: Blob, onProgress?: (progress: number) => void): Promise<void> {
         try {
             let audioUrl = recording.audioUrl;
-            let audioBase64 = recording.audioBase64;
 
             // Si hay un Blob, subirlo a Storage
             if (audioBlob) {
@@ -236,7 +235,6 @@ export const supabaseDb = {
 
                 if (uploadedUrl) {
                     audioUrl = uploadedUrl;
-                    audioBase64 = null; // Ya no guardamos base64 si tenemos URL
                     console.log('[Supabase] Audio uploaded to storage:', audioUrl);
                 }
             }
@@ -246,10 +244,11 @@ export const supabaseDb = {
                 id: recording.id,
                 user_id: recording.userId,
                 organization_id: recording.organizationId,
-                audio_base64: audioBase64, // Será null si se subió a storage
-                audio_url: audioUrl,
+                title: recording.analysis?.title || 'Nueva Grabación',
+                // audio_base64 removed - we use Storage now
+                audio_url: audioUrl || '',
                 duration: recording.duration,
-                created_at_ts: recording.createdAt,
+                created_at_ts: recording.createdAt, // Maps to BIGINT column created_at_ts
                 status: recording.status,
                 markers: recording.markers,
                 analysis: recording.analysis

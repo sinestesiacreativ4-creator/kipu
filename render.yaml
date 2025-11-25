@@ -1,19 +1,58 @@
 services:
-  # Single Service: API + Worker
+  # 1. Backend API Service
   - type: web
     name: kipu-backend
-    env: docker
-    rootDir: backend
+    env: node
     plan: free
-    dockerCommand: npm run start
+    rootDir: backend
+    buildCommand: npm install && npm run build
+    startCommand: npm run start
     envVars:
+      - key: NODE_ENV
+        value: production
       - key: PORT
         value: 10000
+      - key: REDIS_URL
+        sync: false # User must provide this
+      - key: GEMINI_API_KEY
+        sync: false # User must provide this
       - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
+
+  # 2. Background Worker (Audio Processor)
+  - type: worker
+    name: kipu-audio-worker
+    env: node
+    plan: free
+    rootDir: backend
+    buildCommand: npm install && npm run build
+    startCommand: npm run start:worker
+    envVars:
+      - key: NODE_ENV
+        value: production
       - key: REDIS_URL
-        sync: false
+        fromService:
+          type: web
+          name: kipu-backend
+          envVarKey: REDIS_URL
       - key: GEMINI_API_KEY
-        sync: false
+        fromService:
+          type: web
+          name: kipu-backend
+          envVarKey: GEMINI_API_KEY
+
+  # 3. Frontend Static Site
+  - type: web
+    name: kipu-frontend
+    env: static
+    plan: free
+    buildCommand: npm install && npm run build
+    staticPublishPath: ./dist
+    envVars:
+      - key: VITE_API_URL
+        fromService:
+          type: web
+          name: kipu-backend
+          property: host

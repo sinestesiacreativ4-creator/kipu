@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { UploadController } from './controllers/uploadController';
+import { DataController } from './controllers/dataController';
 // Import worker to start it in the same process
 import './workers/audioWorker';
 
@@ -11,17 +12,31 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 // Middleware
-app.use(cors());
+app.use(cors({
+    origin: ['http://localhost:3000', 'http://localhost:5173', 'http://localhost:5174'],
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization']
+}));
 app.use(express.json());
 
 // Routes
-// 1. Obtener URL para subir directo a Supabase (Frontend -> Backend -> Supabase)
-app.post('/api/upload-url', UploadController.getUploadUrl);
+// 1. Subida directa a Redis (Multipart)
+app.post('/api/upload-redis', UploadController.uploadMiddleware, UploadController.uploadToRedis);
 
-// 2. Notificar que la subida terminó y encolar procesamiento
-app.post('/api/upload-complete', UploadController.notifyUploadComplete);
+// 2. Consultar estado en Redis
+app.get('/api/status/:recordingId', UploadController.getStatus);
 
-// 3. Health Check
+// 3. Data CRUD
+app.post('/api/organizations', DataController.createOrganization);
+app.get('/api/organizations/:slug', DataController.getOrganizationBySlug);
+app.get('/api/profiles/:orgId', DataController.getProfiles);
+app.post('/api/profiles', DataController.createProfile);
+app.delete('/api/profiles/:id', DataController.deleteProfile);
+app.get('/api/recordings/:userId/:orgId', DataController.getRecordings);
+app.delete('/api/recordings/:id', DataController.deleteRecording);
+
+// 4. Health Check
 app.get('/health', (req, res) => res.send('Audio Processing Service OK'));
 
 app.listen(PORT, () => {

@@ -2,9 +2,6 @@ import { Worker, Job } from 'bullmq';
 import IORedis from 'ioredis';
 import { createClient } from '@supabase/supabase-js';
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import { GoogleAIFileManager, FileState } from '@google/generative-ai/server';
-import fs from 'fs';
-import path from 'path';
 import https from 'https';
 import dotenv from 'dotenv';
 import { AudioJobData } from '../services/queue';
@@ -22,86 +19,63 @@ const supabase = createClient(
 );
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
-const fileManager = new GoogleAIFileManager(process.env.GEMINI_API_KEY!);
 
 // --- UTILIDADES ---
 
-// Descargar archivo a disco temporalmente (necesario para Gemini File API)
-async function downloadFile(url: string, destPath: string): Promise<void> {
+// Descargar archivo como buffer
+async function downloadFileToBuffer(url: string): Promise<Buffer> {
     return new Promise((resolve, reject) => {
-        const file = fs.createWriteStream(destPath);
+        const chunks: Buffer[] = [];
         https.get(url, (response) => {
-            response.pipe(file);
-            file.on('finish', () => {
-                file.close();
-                resolve();
-            });
-        }).on('error', (err) => {
-            fs.unlink(destPath, () => { });
-            reject(err);
-        });
+            response.on('data', (chunk) => chunks.push(chunk));
+            response.on('end', () => resolve(Buffer.concat(chunks)));
+        }).on('error', reject);
     });
 }
 
-// Procesar con IA Real
+// Procesar con IA usando audio inline
 async function processAudioWithAI(signedUrl: string, jobId: string): Promise<any> {
-    const tempFilePath = path.join(__dirname, `temp_${jobId}.webm`);
-
     try {
-        console.log(`[AI Engine] Downloading audio to ${tempFilePath}...`);
-        await downloadFile(signedUrl, tempFilePath);
+        console.log(`[AI Engine] Downloading audio from ${signedUrl}...`);
+        const audioBuffer = await downloadFileToBuffer(signedUrl);
+        const audioBase64 = audioBuffer.toString('base64');
 
-        console.log(`[AI Engine] Uploading to Gemini File Manager...`);
-        const uploadResult = await fileManager.uploadFile(tempFilePath, {
-            mimeType: "audio/webm",
-            displayName: `Recording ${jobId}`,
-        });
+        console.log(`[AI Engine] Audio downloaded (${audioBuffer.length} bytes). Processing with Gemini...`);
 
-        const fileUri = uploadResult.file.uri;
-        console.log(`[AI Engine] File uploaded: ${fileUri}`);
-
-        // Esperar a que el archivo esté activo
-        let file = await fileManager.getFile(uploadResult.file.name);
-        while (file.state === FileState.PROCESSING) {
-            console.log(`[AI Engine] Waiting for file processing...`);
-            await new Promise((resolve) => setTimeout(resolve, 5000));
-            file = await fileManager.getFile(uploadResult.file.name);
-        }
-
-        if (file.state === FileState.FAILED) {
-            throw new Error("Gemini File Processing Failed");
-        }
-
-        console.log(`[AI Engine] File ready. Generating analysis...`);
-        const model = genAI.getGenerativeModel({ model: "models/gemini-1.5-flash" });
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
         const prompt = `
-      Actúa como un asistente experto en transcripción y documentación. Analiza esta grabación completa.
-      
-      IMPORTANTE: Genera una transcripción COMPLETA del audio con timestamps aproximados.
-      
-      Devuelve ÚNICAMENTE un objeto JSON válido con esta estructura:
-      {
-        "title": "Título descriptivo de la reunión",
-        "category": "Categoría principal (ej: Reunión, Entrevista, Clase, etc.)",
-        "tags": ["tag1", "tag2", "tag3"],
-        "summary": ["Punto clave 1", "Punto clave 2", "Punto clave 3"],
-        "actionItems": ["Tarea 1", "Tarea 2"],
-        "transcript": [
-          {"speaker": "Hablante 1", "text": "Texto transcrito aquí", "timestamp": "00:00"},
-          {"speaker": "Hablante 2", "text": "Respuesta aquí", "timestamp": "00:15"}
-        ]
-      }
-      
-      REGLAS:
-      - La transcripción debe ser COMPLETA, no un resumen
-      - Identifica diferentes hablantes si es posible (Hablante 1, Hablante 2, etc.)
-      - Incluye timestamps aproximados en formato MM:SS
-      - Si el audio es muy largo, divide en segmentos lógicos pero NO omitas contenido
-    `;
+Actúa como un asistente experto en transcripción y documentación. Analiza esta grabación completa.
+
+IMPORTANTE: Genera una transcripción COMPLETA del audio con timestamps aproximados.
+
+Devuelve ÚNICAMENTE un objeto JSON válido con esta estructura:
+{
+  "title": "Título descriptivo de la reunión",
+  "category": "Categoría principal (ej: Reunión, Entrevista, Clase, etc.)",
+  "tags": ["tag1", "tag2", "tag3"],
+  "summary": ["Punto clave 1", "Punto clave 2", "Punto clave 3"],
+  "actionItems": ["Tarea 1", "Tarea 2"],
+  "transcript": [
+    {"speaker": "Hablante 1", "text": "Texto transcrito aquí", "timestamp": "00:00"},
+    {"speaker": "Hablante 2", "text": "Respuesta aquí", "timestamp": "00:15"}
+  ]
+}
+
+REGLAS:
+- La transcripción debe ser COMPLETA, no un resumen
+- Identifica diferentes hablantes si es posible (Hablante 1, Hablante 2, etc.)
+- Incluye timestamps aproximados en formato MM:SS
+- Si el audio es muy largo, divide en segmentos lógicos pero NO omitas contenido
+        `;
 
         const result = await model.generateContent([
-            { fileData: { mimeType: uploadResult.file.mimeType, fileUri: uploadResult.file.uri } },
+            {
+                inlineData: {
+                    mimeType: "audio/webm",
+                    data: audioBase64
+                }
+            },
             { text: prompt }
         ]);
 
@@ -111,57 +85,120 @@ async function processAudioWithAI(signedUrl: string, jobId: string): Promise<any
         const jsonString = responseText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
         const analysis = JSON.parse(jsonString);
 
-        // Cleanup (Borrar archivo de Gemini y local)
-        /* await fileManager.deleteFile(uploadResult.file.name); */ // Opcional: mantener para caché
-        fs.unlink(tempFilePath, () => { });
-
         return analysis;
 
     } catch (error) {
-        // Asegurar limpieza en caso de error
-        if (fs.existsSync(tempFilePath)) fs.unlink(tempFilePath, () => { });
+        console.error('[AI Engine] Error processing audio:', error);
         throw error;
     }
 }
 
 // --- WORKER ---
-const worker = new Worker<AudioJobData>('audio-processing-queue', async (job: Job) => {
-    console.log(`[Worker] Processing job ${job.id} for recording ${job.data.recordingId}`);
+// --- WORKER ---
+const worker = new Worker('audio-processing-queue', async (job: Job) => {
+    const { recordingId, fileKey, mimeType } = job.data;
+    console.log(`[Worker] Processing job ${job.id} for recording ${recordingId}`);
 
     try {
-        await supabase
-            .from('recordings')
-            .update({ status: 'PROCESSING' })
-            .eq('id', job.data.recordingId);
+        // Update status in Redis
+        await connection.hset(`status:${recordingId}`, 'status', 'PROCESSING');
 
-        // Obtener URL firmada de descarga (4 horas de validez)
-        const { data: urlData } = await supabase
-            .storage
-            .from('recordings')
-            .createSignedUrl(job.data.filePath, 14400);
+        // 1. Get file from Redis
+        console.log(`[Worker] Fetching file from Redis key: ${fileKey}`);
+        const fileBuffer = await connection.getBuffer(fileKey);
 
-        if (!urlData?.signedUrl) throw new Error("Could not generate download URL");
+        if (!fileBuffer) {
+            throw new Error('File not found in Redis (expired or missing)');
+        }
 
-        // PROCESAMIENTO REAL
-        const analysisResult = await processAudioWithAI(urlData.signedUrl, job.id!);
+        console.log(`[Worker] File retrieved (${fileBuffer.length} bytes). Processing with Gemini...`);
 
-        await supabase
-            .from('recordings')
-            .update({
-                status: 'COMPLETED',
-                analysis: analysisResult
-            })
-            .eq('id', job.data.recordingId);
+        // 2. Process with Gemini - Using Gemini 2.0 Flash (Experimental)
+        const audioBase64 = fileBuffer.toString('base64');
+        const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
+
+        const prompt = `
+Actúa como un asistente experto en transcripción y documentación. Analiza esta grabación completa.
+
+IMPORTANTE: Genera una transcripción COMPLETA del audio con timestamps aproximados.
+
+Devuelve ÚNICAMENTE un objeto JSON válido con esta estructura:
+{
+  "title": "Título descriptivo de la reunión",
+  "category": "Categoría principal (ej: Reunión, Entrevista, Clase, etc.)",
+  "tags": ["tag1", "tag2", "tag3"],
+  "summary": ["Punto clave 1", "Punto clave 2", "Punto clave 3"],
+  "actionItems": ["Tarea 1", "Tarea 2"],
+  "transcript": [
+    {"speaker": "Hablante 1", "text": "Texto transcrito aquí", "timestamp": "00:00"},
+    {"speaker": "Hablante 2", "text": "Respuesta aquí", "timestamp": "00:15"}
+  ]
+}
+        `;
+
+        const result = await model.generateContent([
+            {
+                inlineData: {
+                    mimeType: mimeType || "audio/webm",
+                    data: audioBase64
+                }
+            },
+            { text: prompt }
+        ]);
+
+        const responseText = result.response.text();
+        console.log(`[Worker] Gemini raw response: ${responseText.substring(0, 200)}...`);
+
+        // Robust JSON cleanup
+        let jsonString = responseText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+
+        // Find the first '{' and last '}' to extract just the JSON object if there's extra text
+        const firstBrace = jsonString.indexOf('{');
+        const lastBrace = jsonString.lastIndexOf('}');
+
+        if (firstBrace !== -1 && lastBrace !== -1) {
+            jsonString = jsonString.substring(firstBrace, lastBrace + 1);
+        }
+
+        // Validate JSON
+        let analysis;
+        try {
+            analysis = JSON.parse(jsonString);
+        } catch (parseError) {
+            console.error('[Worker] JSON Parse Error:', parseError);
+            console.error('[Worker] Failed JSON string:', jsonString);
+            throw new Error('Failed to parse AI response as JSON');
+        }
+
+        // 3. Save result to Redis status
+        await connection.hset(`status:${recordingId}`, {
+            status: 'COMPLETED',
+            analysis: jsonString
+        });
+
+        // 4. Update recording in Redis database
+        const { redisDb } = await import('../services/redisDb');
+        await redisDb.updateRecordingAnalysis(recordingId, analysis, 'COMPLETED');
+
+        // --- CACHE MODE: AGGRESSIVE CLEANUP ---
+        // Delete audio file immediately to save space (Free Tier support)
+        console.log(`[Worker] Cache Mode: Deleting file ${fileKey} to free up Redis space...`);
+        await connection.del(fileKey);
+
+        // Also set a short TTL for the status key just in case
+        await connection.expire(`status:${recordingId}`, 3600); // 1 hour retention for status
 
         console.log(`[Worker] Job ${job.id} completed successfully`);
         return { success: true };
 
     } catch (error: any) {
         console.error(`[Worker] Job ${job.id} failed:`, error);
-        await supabase
-            .from('recordings')
-            .update({ status: 'ERROR' })
-            .eq('id', job.data.recordingId);
+
+        await connection.hset(`status:${recordingId}`, {
+            status: 'ERROR',
+            error: error.message
+        });
+
         throw error;
     }
 }, { connection });
