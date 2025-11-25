@@ -1,0 +1,49 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Organization {
+  id        String      @id @default(uuid())
+  name      String
+  slug      String      @unique
+  createdAt DateTime    @default(now())
+  
+  profiles  Profile[]
+  recordings Recording[]
+}
+
+model Profile {
+  id             String       @id @default(uuid())
+  name           String
+  role           String       @default("user")
+  avatarColor    String
+  createdAt      DateTime     @default(now())
+  
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  
+  recordings     Recording[]
+}
+
+model Recording {
+  id             String       @id @default(uuid())
+  duration       Float
+  status         String       @default("PROCESSING")
+  audioKey       String?      // Redis key for temporary storage or S3 key
+  analysis       Json?        // Stores the AI analysis result
+  createdAt      DateTime     @default(now())
+  
+  userId         String
+  user           Profile      @relation(fields: [userId], references: [id])
+  
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+}

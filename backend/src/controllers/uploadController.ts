@@ -3,13 +3,23 @@ import { audioQueue } from '../services/queue';
 import dotenv from 'dotenv';
 import multer from 'multer';
 import IORedis from 'ioredis';
+import prisma from '../services/prisma';
 
 dotenv.config();
 
-// Redis connection for file storage
-const redis = new IORedis(process.env.REDIS_URL || 'redis://localhost:6379', {
+// Redis connection for file storage (Robust configuration)
+const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
+const redisOptions: any = {
     maxRetriesPerRequest: null,
-});
+};
+
+if (redisUrl.startsWith('rediss://')) {
+    redisOptions.tls = {
+        rejectUnauthorized: false
+    };
+}
+
+const redis = new IORedis(redisUrl, redisOptions);
 
 // Configure Multer for memory storage
 const upload = multer({
@@ -46,29 +56,34 @@ export const UploadController = {
 
             console.log(`[API] File stored in Redis with key: ${fileKey}`);
 
-            // 2. Create recording entry in Redis
-            const recording = {
-                id: recordingId,
-                userId,
-                organizationId,
-                audioBase64: null,
-                audioKey: fileKey,
-                duration: 0,
-                createdAt: Date.now(),
-                status: 'PROCESSING',
-                markers: [],
-                analysis: {
-                    title: 'Procesando...',
-                    category: 'Procesando',
-                    summary: ['Subiendo archivo...'],
-                    actionItems: [],
-                    transcript: [],
-                    tags: []
+            // 2. Create recording entry in PostgreSQL via Prisma
+            try {
+                await prisma.recording.create({
+                    data: {
+                        id: recordingId,
+                        userId,
+                        organizationId,
+                        duration: 0,
+                        status: 'PROCESSING',
+                        audioKey: fileKey,
+                        analysis: {
+                            title: 'Procesando...',
+                            category: 'Procesando',
+                            summary: ['Subiendo archivo...'],
+                            actionItems: [],
+                            transcript: [],
+                            tags: []
+                        }
+                    }
+                });
+            } catch (dbError: any) {
+                console.error('[API] Error creating recording in DB:', dbError);
+                // If foreign key constraint fails, it means user/org doesn't exist in Postgres
+                if (dbError.code === 'P2003') {
+                    return res.status(400).json({ error: 'User or Organization not found in database. Please re-login.' });
                 }
-            };
-
-            const { redisDb } = await import('../services/redisDb');
-            await redisDb.saveRecording(recording);
+                throw dbError;
+            }
 
             // 3. Queue job
             const job = await audioQueue.add('process-audio-redis', {
@@ -84,7 +99,7 @@ export const UploadController = {
 
             console.log(`[API] Job ${job.id} queued`);
 
-            // 4. Initialize status in Redis
+            // 4. Initialize status in Redis (for polling)
             await redis.hset(`status:${recordingId}`, {
                 status: 'QUEUED',
                 progress: '0'

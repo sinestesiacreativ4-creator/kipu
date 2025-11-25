@@ -31,10 +31,23 @@ interface Recording {
     analysis?: any;
 }
 
-// Redis Connection
-const redis = new IORedis(process.env.REDIS_URL || 'redis://localhost:6379', {
+// Redis Connection Configuration
+const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
+const isProduction = process.env.NODE_ENV === 'production';
+
+// Configure Redis options for production (SSL support)
+const redisOptions: any = {
     maxRetriesPerRequest: null,
-});
+};
+
+// If using rediss:// protocol or in production, enable TLS
+if (redisUrl.startsWith('rediss://')) {
+    redisOptions.tls = {
+        rejectUnauthorized: false // Allow self-signed certs (common in some cloud providers)
+    };
+}
+
+const redis = new IORedis(redisUrl, redisOptions);
 
 export const redisDb = {
     // =============== ORGANIZATIONS ===============

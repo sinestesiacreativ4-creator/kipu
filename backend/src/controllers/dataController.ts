@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { redisDb } from '../services/redisDb';
+import prisma from '../services/prisma';
 
 export const DataController = {
     // =============== ORGANIZATIONS ===============
@@ -12,10 +12,19 @@ export const DataController = {
                 return res.status(400).json({ error: 'Name and slug are required' });
             }
 
-            const org = await redisDb.createOrganization(name, slug);
+            const org = await prisma.organization.create({
+                data: {
+                    name,
+                    slug
+                }
+            });
             res.json(org);
         } catch (error: any) {
             console.error('[DataController] Error creating organization:', error);
+            // Handle unique constraint violation
+            if (error.code === 'P2002') {
+                return res.status(409).json({ error: 'Organization slug already exists' });
+            }
             res.status(500).json({ error: error.message });
         }
     },
@@ -23,7 +32,9 @@ export const DataController = {
     async getOrganizationBySlug(req: Request, res: Response) {
         try {
             const { slug } = req.params;
-            const org = await redisDb.getOrganizationBySlug(slug);
+            const org = await prisma.organization.findUnique({
+                where: { slug }
+            });
 
             if (!org) {
                 return res.status(404).json({ error: 'Organization not found' });
@@ -40,7 +51,10 @@ export const DataController = {
     async getProfiles(req: Request, res: Response) {
         try {
             const { orgId } = req.params;
-            const profiles = await redisDb.getProfiles(orgId);
+            const profiles = await prisma.profile.findMany({
+                where: { organizationId: orgId },
+                orderBy: { createdAt: 'desc' }
+            });
             res.json(profiles);
         } catch (error: any) {
             res.status(500).json({ error: error.message });
@@ -55,8 +69,16 @@ export const DataController = {
                 return res.status(400).json({ error: 'Name and organizationId are required' });
             }
 
-            await redisDb.addProfile(profile);
-            res.json({ success: true, profile });
+            const newProfile = await prisma.profile.create({
+                data: {
+                    id: profile.id, // Optional, Prisma generates uuid if not provided
+                    name: profile.name,
+                    role: profile.role || 'user',
+                    avatarColor: profile.avatarColor,
+                    organizationId: profile.organizationId
+                }
+            });
+            res.json({ success: true, profile: newProfile });
         } catch (error: any) {
             console.error('[DataController] Error creating profile:', error);
             res.status(500).json({ error: error.message });
@@ -66,7 +88,9 @@ export const DataController = {
     async deleteProfile(req: Request, res: Response) {
         try {
             const { id } = req.params;
-            await redisDb.deleteProfile(id);
+            await prisma.profile.delete({
+                where: { id }
+            });
             res.json({ success: true });
         } catch (error: any) {
             res.status(500).json({ error: error.message });
@@ -78,7 +102,13 @@ export const DataController = {
     async getRecordings(req: Request, res: Response) {
         try {
             const { userId, orgId } = req.params;
-            const recordings = await redisDb.getRecordings(userId, orgId);
+            const recordings = await prisma.recording.findMany({
+                where: {
+                    userId,
+                    organizationId: orgId
+                },
+                orderBy: { createdAt: 'desc' }
+            });
             res.json(recordings);
         } catch (error: any) {
             res.status(500).json({ error: error.message });
@@ -88,7 +118,9 @@ export const DataController = {
     async deleteRecording(req: Request, res: Response) {
         try {
             const { id } = req.params;
-            await redisDb.deleteRecording(id);
+            await prisma.recording.delete({
+                where: { id }
+            });
             res.json({ success: true });
         } catch (error: any) {
             res.status(500).json({ error: error.message });

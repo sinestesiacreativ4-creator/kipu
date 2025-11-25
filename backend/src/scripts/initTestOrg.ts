@@ -1,25 +1,30 @@
-import IORedis from 'ioredis';
-import { v4 as uuidv4 } from 'uuid';
 import dotenv from 'dotenv';
+import prisma from '../services/prisma';
 
 dotenv.config();
-
-const redis = new IORedis(process.env.REDIS_URL || 'redis://localhost:6379');
 
 async function initializeTestOrg() {
     try {
         console.log('[Init] Creating test organization...');
 
-        // Create a test organization
-        const testOrg = {
-            id: uuidv4(),
-            name: 'Asesorías Étnicas Demo',
-            slug: 'demo',
-            createdAt: Date.now()
-        };
+        // Check if it already exists
+        const existing = await prisma.organization.findUnique({
+            where: { slug: 'demo' }
+        });
 
-        await redis.set(`org:${testOrg.id}`, JSON.stringify(testOrg));
-        await redis.set(`orgSlug:${testOrg.slug}`, testOrg.id);
+        if (existing) {
+            console.log('[Init] Test organization "demo" already exists.');
+            console.log(`[Init] ID: ${existing.id}`);
+            process.exit(0);
+        }
+
+        // Create a test organization
+        const testOrg = await prisma.organization.create({
+            data: {
+                name: 'Asesorías Étnicas Demo',
+                slug: 'demo'
+            }
+        });
 
         console.log('[Init] Test organization created!');
         console.log(`[Init] Organization: ${testOrg.name}`);

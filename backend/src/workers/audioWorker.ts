@@ -1,99 +1,28 @@
 import { Worker, Job } from 'bullmq';
 import IORedis from 'ioredis';
-import { createClient } from '@supabase/supabase-js';
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import https from 'https';
 import dotenv from 'dotenv';
-import { AudioJobData } from '../services/queue';
+import prisma from '../services/prisma';
+// import { AudioJobData } from '../services/queue'; // Assuming this exists, if not we can use any
 
 dotenv.config();
 
 // --- CONFIGURACIÓN ---
-const connection = new IORedis(process.env.REDIS_URL || 'redis://localhost:6379', {
+const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
+const redisOptions: any = {
     maxRetriesPerRequest: null,
-});
+};
 
-const supabase = createClient(
-    process.env.SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+if (redisUrl.startsWith('rediss://')) {
+    redisOptions.tls = {
+        rejectUnauthorized: false
+    };
+}
+
+const connection = new IORedis(redisUrl, redisOptions);
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
 
-// --- UTILIDADES ---
-
-// Descargar archivo como buffer
-async function downloadFileToBuffer(url: string): Promise<Buffer> {
-    return new Promise((resolve, reject) => {
-        const chunks: Buffer[] = [];
-        https.get(url, (response) => {
-            response.on('data', (chunk) => chunks.push(chunk));
-            response.on('end', () => resolve(Buffer.concat(chunks)));
-        }).on('error', reject);
-    });
-}
-
-// Procesar con IA usando audio inline
-async function processAudioWithAI(signedUrl: string, jobId: string): Promise<any> {
-    try {
-        console.log(`[AI Engine] Downloading audio from ${signedUrl}...`);
-        const audioBuffer = await downloadFileToBuffer(signedUrl);
-        const audioBase64 = audioBuffer.toString('base64');
-
-        console.log(`[AI Engine] Audio downloaded (${audioBuffer.length} bytes). Processing with Gemini...`);
-
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-
-        const prompt = `
-Actúa como un asistente experto en transcripción y documentación. Analiza esta grabación completa.
-
-IMPORTANTE: Genera una transcripción COMPLETA del audio con timestamps aproximados.
-
-Devuelve ÚNICAMENTE un objeto JSON válido con esta estructura:
-{
-  "title": "Título descriptivo de la reunión",
-  "category": "Categoría principal (ej: Reunión, Entrevista, Clase, etc.)",
-  "tags": ["tag1", "tag2", "tag3"],
-  "summary": ["Punto clave 1", "Punto clave 2", "Punto clave 3"],
-  "actionItems": ["Tarea 1", "Tarea 2"],
-  "transcript": [
-    {"speaker": "Hablante 1", "text": "Texto transcrito aquí", "timestamp": "00:00"},
-    {"speaker": "Hablante 2", "text": "Respuesta aquí", "timestamp": "00:15"}
-  ]
-}
-
-REGLAS:
-- La transcripción debe ser COMPLETA, no un resumen
-- Identifica diferentes hablantes si es posible (Hablante 1, Hablante 2, etc.)
-- Incluye timestamps aproximados en formato MM:SS
-- Si el audio es muy largo, divide en segmentos lógicos pero NO omitas contenido
-        `;
-
-        const result = await model.generateContent([
-            {
-                inlineData: {
-                    mimeType: "audio/webm",
-                    data: audioBase64
-                }
-            },
-            { text: prompt }
-        ]);
-
-        const responseText = result.response.text();
-
-        // Limpiar JSON
-        const jsonString = responseText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-        const analysis = JSON.parse(jsonString);
-
-        return analysis;
-
-    } catch (error) {
-        console.error('[AI Engine] Error processing audio:', error);
-        throw error;
-    }
-}
-
-// --- WORKER ---
 // --- WORKER ---
 const worker = new Worker('audio-processing-queue', async (job: Job) => {
     const { recordingId, fileKey, mimeType } = job.data;
@@ -152,7 +81,6 @@ Devuelve ÚNICAMENTE un objeto JSON válido con esta estructura:
         // Robust JSON cleanup
         let jsonString = responseText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
 
-        // Find the first '{' and last '}' to extract just the JSON object if there's extra text
         const firstBrace = jsonString.indexOf('{');
         const lastBrace = jsonString.lastIndexOf('}');
 
@@ -170,15 +98,25 @@ Devuelve ÚNICAMENTE un objeto JSON válido con esta estructura:
             throw new Error('Failed to parse AI response as JSON');
         }
 
-        // 3. Save result to Redis status
+        // 3. Save result to Redis status (for polling)
         await connection.hset(`status:${recordingId}`, {
             status: 'COMPLETED',
             analysis: jsonString
         });
 
-        // 4. Update recording in Redis database
-        const { redisDb } = await import('../services/redisDb');
-        await redisDb.updateRecordingAnalysis(recordingId, analysis, 'COMPLETED');
+        // 4. Update recording in PostgreSQL via Prisma
+        try {
+            await prisma.recording.update({
+                where: { id: recordingId },
+                data: {
+                    analysis: analysis,
+                    status: 'COMPLETED'
+                }
+            });
+            console.log(`[Worker] Recording updated in DB: ${recordingId}`);
+        } catch (dbError) {
+            console.error('[Worker] Error updating recording in DB:', dbError);
+        }
 
         // --- CACHE MODE: AGGRESSIVE CLEANUP ---
         // Delete audio file immediately to save space (Free Tier support)

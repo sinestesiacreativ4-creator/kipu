@@ -5,10 +5,18 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 // Conexión a Redis (Esencial para BullMQ)
-// En producción, usar URL segura de Redis (ej: Upstash o AWS ElastiCache)
-const connection = new IORedis(process.env.REDIS_URL || 'redis://localhost:6379', {
+const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
+const redisOptions: any = {
     maxRetriesPerRequest: null,
-});
+};
+
+if (redisUrl.startsWith('rediss://')) {
+    redisOptions.tls = {
+        rejectUnauthorized: false
+    };
+}
+
+const connection = new IORedis(redisUrl, redisOptions);
 
 // Definición de la Cola
 export const audioQueue = new Queue('audio-processing-queue', { connection });
@@ -16,7 +24,8 @@ export const audioQueue = new Queue('audio-processing-queue', { connection });
 // Tipos de trabajos
 export interface AudioJobData {
     recordingId: string;
-    filePath: string; // Ruta en Supabase Storage
+    fileKey: string; // Redis key for file
     userId: string;
     organizationId: string;
+    mimeType?: string;
 }
