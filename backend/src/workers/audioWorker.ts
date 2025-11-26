@@ -1,4 +1,28 @@
-maxRetriesPerRequest: null,
+import { Worker, Job } from 'bullmq';
+import IORedis from 'ioredis';
+import { GoogleGenerativeAI } from '@google/generative-ai';
+import dotenv from 'dotenv';
+import { prisma } from '../services/prisma';
+import express from 'express';
+
+dotenv.config();
+
+// Dummy server for Render Web Service detection
+const app = express();
+const port = process.env.PORT || 10000;
+
+app.get('/', (req, res) => {
+    res.send('Audio Worker is running');
+});
+
+app.listen(port, () => {
+    console.log(`Worker health check server listening on port ${port}`);
+});
+
+// --- CONFIGURACIÓN ---
+const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
+const redisOptions: any = {
+    maxRetriesPerRequest: null,
 };
 
 if (redisUrl.startsWith('rediss://')) {
