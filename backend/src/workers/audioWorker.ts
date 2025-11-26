@@ -39,16 +39,45 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
 
 // --- WORKER ---
 const worker = new Worker('audio-processing-queue', async (job: Job) => {
-    const { recordingId, fileUri, mimeType } = job.data;
+    const { recordingId, fileKey, fileUri, mimeType, useRedis } = job.data;
     console.log(`[Worker] Processing job ${job.id} for recording ${recordingId}`);
+    console.log(`[Worker] Strategy: ${useRedis ? 'Redis' : 'Gemini File API'}`);
 
     try {
         // Update status in Redis
         await connection.hset(`status:${recordingId}`, 'status', 'PROCESSING');
 
-        console.log(`[Worker] Using Gemini File URI: ${fileUri}`);
+        let audioData: any;
 
-        // Process with Gemini 2.0 Flash using file URI (no Buffer needed)
+        if (useRedis) {
+            // === REDIS PATH (Fast for small files) ===
+            console.log(`[Worker] Fetching file from Redis: ${fileKey}`);
+            const fileBuffer = await connection.getBuffer(fileKey);
+
+            if (!fileBuffer) {
+                throw new Error('File not found in Redis (expired or missing)');
+            }
+
+            console.log(`[Worker] File retrieved (${fileBuffer.length} bytes). Processing...`);
+            const audioBase64 = fileBuffer.toString('base64');
+            audioData = {
+                inlineData: {
+                    mimeType: mimeType || "audio/webm",
+                    data: audioBase64
+                }
+            };
+        } else {
+            // === GEMINI FILE API PATH (Large files) ===
+            console.log(`[Worker] Using Gemini File URI: ${fileUri}`);
+            audioData = {
+                fileData: {
+                    mimeType: mimeType || "audio/webm",
+                    fileUri: fileUri
+                }
+            };
+        }
+
+        // Process with Gemini 2.0 Flash
         const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
 
         const prompt = `
@@ -71,12 +100,7 @@ Devuelve ÚNICAMENTE un objeto JSON válido con esta estructura:
         `;
 
         const result = await model.generateContent([
-            {
-                fileData: {
-                    mimeType: mimeType || "audio/webm",
-                    fileUri: fileUri
-                }
-            },
+            audioData,
             { text: prompt }
         ]);
 
@@ -123,8 +147,15 @@ Devuelve ÚNICAMENTE un objeto JSON válido con esta estructura:
             console.error('[Worker] Error updating recording in DB:', dbError);
         }
 
-        // Note: Gemini File API automatically deletes files after processing
-        // No need to manually clean up like we did with Redis
+        // Cleanup based on storage strategy
+        if (useRedis) {
+            // Delete file from Redis to free space
+            console.log(`[Worker] Deleting file from Redis: ${fileKey}`);
+            await connection.del(fileKey);
+        } else {
+            // Gemini File API automatically deletes files after processing
+            console.log(`[Worker] Gemini file will be auto-deleted by API`);
+        }
 
         console.log(`[Worker] Job ${job.id} completed successfully`);
         return { success: true };

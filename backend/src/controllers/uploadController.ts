@@ -36,13 +36,17 @@ const upload = multer({
 // Initialize Gemini File Manager
 const fileManager = new GoogleAIFileManager(process.env.GEMINI_API_KEY!);
 
+// Redis size limit (30 MB)
+const REDIS_SIZE_LIMIT = 30 * 1024 * 1024;
+
 export const UploadController = {
     // Middleware for handling file upload
     uploadMiddleware: upload.single('file'),
 
     /**
-     * Upload file to Gemini File API and queue for processing
-     * Supports files up to 2GB (vs 30MB Redis limit)
+     * Hybrid upload strategy:
+     * - Files < 30MB → Redis (fast)
+     * - Files ≥ 30MB → Gemini File API (no limit)
      */
     async uploadToRedis(req: Request, res: Response) {
         let tempFilePath: string | null = null;
@@ -53,32 +57,45 @@ export const UploadController = {
             }
 
             const { recordingId, userId, organizationId } = req.body;
+            const fileSize = req.file.size;
+            const useRedis = fileSize < REDIS_SIZE_LIMIT;
 
-            console.log(`[API] Received file upload for recording ${recordingId} (${req.file.size} bytes)`);
+            console.log(`[API] Received file upload for recording ${recordingId} (${fileSize} bytes)`);
+            console.log(`[API] Strategy: ${useRedis ? 'Redis (fast)' : 'Gemini File API (large file)'}`);
 
-            // 1. Write buffer to temporary file (Gemini requires file path)
-            const tempDir = os.tmpdir();
-            const ext = path.extname(req.file.originalname) || '.webm';
-            tempFilePath = path.join(tempDir, `${recordingId}${ext}`);
+            let storageKey: string;
 
-            fs.writeFileSync(tempFilePath, req.file.buffer);
-            console.log(`[API] Temp file created: ${tempFilePath}`);
+            if (useRedis) {
+                // === REDIS PATH (Fast for small files) ===
+                const fileKey = `file:${recordingId}`;
+                await redis.set(fileKey, req.file.buffer);
+                await redis.expire(fileKey, 3600); // 1 hour TTL
+                console.log(`[API] File stored in Redis: ${fileKey}`);
+                storageKey = fileKey;
+            } else {
+                // === GEMINI FILE API PATH (For large files) ===
+                const tempDir = os.tmpdir();
+                const ext = path.extname(req.file.originalname) || '.webm';
+                tempFilePath = path.join(tempDir, `${recordingId}${ext}`);
 
-            // 2. Upload to Gemini File API
-            console.log(`[API] Uploading to Gemini...`);
-            const uploadResult = await fileManager.uploadFile(tempFilePath, {
-                mimeType: req.file.mimetype,
-                displayName: req.file.originalname
-            });
+                fs.writeFileSync(tempFilePath, req.file.buffer);
+                console.log(`[API] Temp file created: ${tempFilePath}`);
 
-            const fileUri = uploadResult.file.uri;
-            console.log(`[API] File uploaded to Gemini: ${fileUri}`);
+                console.log(`[API] Uploading to Gemini...`);
+                const uploadResult = await fileManager.uploadFile(tempFilePath, {
+                    mimeType: req.file.mimetype,
+                    displayName: req.file.originalname
+                });
 
-            // 3. Delete temp file
-            fs.unlinkSync(tempFilePath);
-            tempFilePath = null;
+                storageKey = uploadResult.file.uri;
+                console.log(`[API] File uploaded to Gemini: ${storageKey}`);
 
-            // 4. Create recording entry in PostgreSQL via Prisma
+                // Cleanup temp file
+                fs.unlinkSync(tempFilePath);
+                tempFilePath = null;
+            }
+
+            // Create recording entry in PostgreSQL
             try {
                 await prisma.recording.create({
                     data: {
@@ -87,7 +104,7 @@ export const UploadController = {
                         organizationId,
                         duration: 0,
                         status: 'PROCESSING',
-                        audioKey: fileUri, // Store Gemini URI instead of Redis key
+                        audioKey: storageKey,
                         analysis: {
                             title: 'Procesando...',
                             category: 'Procesando',
@@ -106,13 +123,14 @@ export const UploadController = {
                 throw dbError;
             }
 
-            // 5. Queue job with Gemini URI
+            // Queue job
             const job = await audioQueue.add('process-audio-redis', {
-                fileUri, // Pass URI instead of Redis key
+                [useRedis ? 'fileKey' : 'fileUri']: storageKey,
                 recordingId,
                 userId,
                 organizationId,
-                mimeType: req.file.mimetype
+                mimeType: req.file.mimetype,
+                useRedis // Flag to tell worker which method to use
             }, {
                 attempts: 3,
                 removeOnComplete: true
@@ -120,12 +138,12 @@ export const UploadController = {
 
             console.log(`[API] Job ${job.id} queued`);
 
-            // 6. Initialize status in Redis (for polling)
+            // Initialize status in Redis (for polling)
             await redis.hset(`status:${recordingId}`, {
                 status: 'QUEUED',
                 progress: '0'
             });
-            await redis.expire(`status:${recordingId}`, 86400); // 24 hours
+            await redis.expire(`status:${recordingId}`, 86400);
 
             res.json({
                 success: true,
