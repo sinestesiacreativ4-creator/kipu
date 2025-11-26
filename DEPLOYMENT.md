@@ -68,7 +68,7 @@ Debes crear el servicio manualmente en Render:
 NODE_ENV=production
 PORT=10000
 REDIS_URL=redis://default:YHSnbqQscG4re07AsiJFJagXWSWBoe5a@redis-17454.c8.us-east-1-2.ec2.cloud.redislabs.com:17454
-GEMINI_API_KEY=AIzaSyAXGFG6wYKyAYF3ltIzPoINVRbzSMu8fMw
+GEMINI_API_KEY=AIzaSyAAFAC_qMUR664svNCsQXyN8ZZvoBjY5bg
 FRONTEND_URL=https://kipu.vercel.app
 DATABASE_URL=(se conecta automáticamente desde kipu-db)
 ```
