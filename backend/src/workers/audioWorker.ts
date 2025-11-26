@@ -7,19 +7,9 @@ import express from 'express';
 
 dotenv.config();
 
-// Dummy server for Render Web Service detection (only if running standalone)
-if (require.main === module) {
-    const app = express();
-    const port = 10001; // Use a different port to avoid conflict with main API (10000)
-
-    app.get('/', (req, res) => {
-        res.send('Audio Worker is running');
-    });
-
-    app.listen(port, () => {
-        console.log(`Worker health check server listening on port ${port}`);
-    });
-}
+// Health check server disabled - Worker runs in same process as API
+// The API's health endpoint will serve both purposes
+console.log('[Worker] Running in hybrid mode (same process as API)');
 
 // --- CONFIGURACIÓN ---
 const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';

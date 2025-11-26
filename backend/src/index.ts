@@ -4,8 +4,8 @@ import dotenv from 'dotenv';
 import { UploadController } from './controllers/uploadController';
 import { DataController } from './controllers/dataController';
 import prisma from './services/prisma';
-// Import worker to start it in the same process
-// import './workers/audioWorker'; // COMENTADO: El worker corre en un proceso separado en Render
+// Start background worker in the same process
+import './workers/audioWorker';
 
 dotenv.config();
 
