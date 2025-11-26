@@ -5,7 +5,7 @@
     "main": "dist/index.js",
     "scripts": {
         "build": "tsc",
-        "start": "npx prisma generate && npx prisma migrate deploy && node dist/index.js",
+        "start": "npx prisma generate && npx prisma db push && node dist/index.js",
         "start:worker": "npx prisma generate && node dist/workers/audioWorker.js",
         "dev": "ts-node-dev src/index.ts",
         "worker": "ts-node-dev src/workers/audioWorker.ts"
