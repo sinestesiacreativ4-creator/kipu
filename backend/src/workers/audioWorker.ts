@@ -1,16 +1,4 @@
-import { Worker, Job } from 'bullmq';
-import IORedis from 'ioredis';
-import { GoogleGenerativeAI } from '@google/generative-ai';
-import dotenv from 'dotenv';
-import prisma from '../services/prisma';
-// import { AudioJobData } from '../services/queue'; // Assuming this exists, if not we can use any
-
-dotenv.config();
-
-// --- CONFIGURACIÓN ---
-const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
-const redisOptions: any = {
-    maxRetriesPerRequest: null,
+maxRetriesPerRequest: null,
 };
 
 if (redisUrl.startsWith('rediss://')) {
