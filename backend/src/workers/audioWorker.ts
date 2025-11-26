@@ -2,7 +2,7 @@ import { Worker, Job } from 'bullmq';
 import IORedis from 'ioredis';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import dotenv from 'dotenv';
-import { prisma } from '../services/prisma';
+import prisma from '../services/prisma';
 import express from 'express';
 
 dotenv.config();
