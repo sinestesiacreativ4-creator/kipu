@@ -25,34 +25,6 @@ services:
       - key: FRONTEND_URL
         sync: false
 
-  # 2. Background Worker (Audio Processor)
-  - type: worker
-    name: kipu-audio-worker
-    env: node
-    plan: free
-    rootDir: backend
-    buildCommand: npm install && npm run build
-    startCommand: npx prisma generate && npm run start:worker
-    envVars:
-      - key: NODE_ENV
-        value: production
-      - key: NPM_CONFIG_LEGACY_PEER_DEPS
-        value: true
-      - key: DATABASE_URL
-        fromDatabase:
-          name: kipu-db
-          property: connectionString
-      - key: REDIS_URL
-        fromService:
-          type: web
-          name: kipu-backend
-          envVarKey: REDIS_URL
-      - key: GEMINI_API_KEY
-        fromService:
-          type: web
-          name: kipu-backend
-          envVarKey: GEMINI_API_KEY
-
   # 3. Frontend Static Site
   - type: web
     name: kipu-frontend

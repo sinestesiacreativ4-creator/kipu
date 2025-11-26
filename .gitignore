@@ -28,4 +28,4 @@ dist-ssr
 
 # .env.vercel
 
-.vercel
+# .vercel
