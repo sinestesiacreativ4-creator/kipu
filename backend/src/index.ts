@@ -3,6 +3,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import { UploadController } from './controllers/uploadController';
 import { DataController } from './controllers/dataController';
+import prisma from './services/prisma';
 // Import worker to start it in the same process
 import './workers/audioWorker';
 
@@ -38,6 +39,21 @@ app.delete('/api/recordings/:id', DataController.deleteRecording);
 
 // 4. Health Check
 app.get('/health', (req, res) => res.send('Audio Processing Service OK'));
+
+// 5. Init Demo Data (Temporary)
+app.get('/api/init-demo-data', async (req, res) => {
+    try {
+        const existing = await prisma.organization.findUnique({ where: { slug: 'demo' } });
+        if (existing) return res.json({ message: 'Demo org already exists', id: existing.id });
+
+        const testOrg = await prisma.organization.create({
+            data: { name: 'Asesorías Étnicas Demo', slug: 'demo' }
+        });
+        res.json({ message: 'Demo org created!', org: testOrg });
+    } catch (error: any) {
+        res.status(500).json({ error: error.message });
+    }
+});
 
 app.listen(PORT, () => {
     console.log(`[Server] Backend running on port ${PORT}`);
