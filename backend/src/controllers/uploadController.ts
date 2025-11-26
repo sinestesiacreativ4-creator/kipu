@@ -81,17 +81,20 @@ export const UploadController = {
                 }
             });
 
-            // Process immediately in background (don't block response)
-            processAudioImmediate(
-                req.file.buffer,
-                req.file.mimetype,
-                req.file.originalname,
-                recordingId,
-                useRedis
-            ).catch(error => {
-                console.error('[API] Background processing error:', error);
+            // Process in background (truly async - don't block response)
+            setImmediate(() => {
+                processAudioImmediate(
+                    req.file!.buffer,
+                    req.file!.mimetype,
+                    req.file!.originalname,
+                    recordingId,
+                    useRedis
+                ).catch(error => {
+                    console.error('[API] Background processing error:', error);
+                });
             });
 
+            // Respond immediately
             res.json({
                 success: true,
                 message: 'File uploaded and processing started',
