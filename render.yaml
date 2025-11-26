@@ -6,7 +6,7 @@ services:
     plan: free
     rootDir: backend
     buildCommand: npm install && npx prisma generate && npm run build
-    startCommand: npx prisma generate && npx prisma migrate deploy && npm run start
+    startCommand: npx prisma generate && npx prisma db push && node dist/index.js
     envVars:
       - key: NODE_ENV
         value: production
@@ -22,9 +22,7 @@ services:
         sync: false
       - key: GEMINI_API_KEY
         sync: false
-      - key: SUPABASE_URL
-        sync: false
-      - key: SUPABASE_SERVICE_ROLE_KEY
+      - key: FRONTEND_URL
         sync: false
 
   # 2. Background Worker (Audio Processor)
