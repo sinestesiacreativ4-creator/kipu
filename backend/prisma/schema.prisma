@@ -18,6 +18,7 @@ model Organization {
   
   profiles  Profile[]
   recordings Recording[]
+  appUsers   AppUser[]
 }
 
 model Profile {
@@ -46,4 +47,16 @@ model Recording {
   
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id])
+}
+
+model AppUser {
+  id             String        @id @default(uuid())
+  email          String        @unique
+  password       String
+  name           String
+  role           String        @default("USER")
+  createdAt      DateTime      @default(now())
+  
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id])
 }
