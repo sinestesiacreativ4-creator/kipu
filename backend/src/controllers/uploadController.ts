@@ -4,6 +4,10 @@ import dotenv from 'dotenv';
 import multer from 'multer';
 import IORedis from 'ioredis';
 import prisma from '../services/prisma';
+import { GoogleAIFileManager } from '@google/generative-ai/server';
+import fs from 'fs';
+import path from 'path';
+import os from 'os';
 
 dotenv.config();
 
@@ -29,15 +33,20 @@ const upload = multer({
     }
 });
 
+// Initialize Gemini File Manager
+const fileManager = new GoogleAIFileManager(process.env.GEMINI_API_KEY!);
+
 export const UploadController = {
     // Middleware for handling file upload
     uploadMiddleware: upload.single('file'),
 
     /**
-     * Upload file directly to Redis and queue for processing
-     * Replaces Supabase Storage flow
+     * Upload file to Gemini File API and queue for processing
+     * Supports files up to 2GB (vs 30MB Redis limit)
      */
     async uploadToRedis(req: Request, res: Response) {
+        let tempFilePath: string | null = null;
+
         try {
             if (!req.file) {
                 return res.status(400).json({ error: 'No file uploaded' });
@@ -47,16 +56,29 @@ export const UploadController = {
 
             console.log(`[API] Received file upload for recording ${recordingId} (${req.file.size} bytes)`);
 
-            // 1. Store file in Redis (Expire in 1 hour)
-            const fileKey = `file:${recordingId}`;
+            // 1. Write buffer to temporary file (Gemini requires file path)
+            const tempDir = os.tmpdir();
+            const ext = path.extname(req.file.originalname) || '.webm';
+            tempFilePath = path.join(tempDir, `${recordingId}${ext}`);
 
-            // Store as Buffer (binary)
-            await redis.set(fileKey, req.file.buffer);
-            await redis.expire(fileKey, 3600); // 1 hour TTL
+            fs.writeFileSync(tempFilePath, req.file.buffer);
+            console.log(`[API] Temp file created: ${tempFilePath}`);
 
-            console.log(`[API] File stored in Redis with key: ${fileKey}`);
+            // 2. Upload to Gemini File API
+            console.log(`[API] Uploading to Gemini...`);
+            const uploadResult = await fileManager.uploadFile(tempFilePath, {
+                mimeType: req.file.mimetype,
+                displayName: req.file.originalname
+            });
 
-            // 2. Create recording entry in PostgreSQL via Prisma
+            const fileUri = uploadResult.file.uri;
+            console.log(`[API] File uploaded to Gemini: ${fileUri}`);
+
+            // 3. Delete temp file
+            fs.unlinkSync(tempFilePath);
+            tempFilePath = null;
+
+            // 4. Create recording entry in PostgreSQL via Prisma
             try {
                 await prisma.recording.create({
                     data: {
@@ -65,7 +87,7 @@ export const UploadController = {
                         organizationId,
                         duration: 0,
                         status: 'PROCESSING',
-                        audioKey: fileKey,
+                        audioKey: fileUri, // Store Gemini URI instead of Redis key
                         analysis: {
                             title: 'Procesando...',
                             category: 'Procesando',
@@ -78,16 +100,15 @@ export const UploadController = {
                 });
             } catch (dbError: any) {
                 console.error('[API] Error creating recording in DB:', dbError);
-                // If foreign key constraint fails, it means user/org doesn't exist in Postgres
                 if (dbError.code === 'P2003') {
                     return res.status(400).json({ error: 'User or Organization not found in database. Please re-login.' });
                 }
                 throw dbError;
             }
 
-            // 3. Queue job
+            // 5. Queue job with Gemini URI
             const job = await audioQueue.add('process-audio-redis', {
-                fileKey,
+                fileUri, // Pass URI instead of Redis key
                 recordingId,
                 userId,
                 organizationId,
@@ -99,7 +120,7 @@ export const UploadController = {
 
             console.log(`[API] Job ${job.id} queued`);
 
-            // 4. Initialize status in Redis (for polling)
+            // 6. Initialize status in Redis (for polling)
             await redis.hset(`status:${recordingId}`, {
                 status: 'QUEUED',
                 progress: '0'
@@ -114,6 +135,12 @@ export const UploadController = {
 
         } catch (error: any) {
             console.error('[API] Error in uploadToRedis:', error);
+
+            // Cleanup temp file if it exists
+            if (tempFilePath && fs.existsSync(tempFilePath)) {
+                fs.unlinkSync(tempFilePath);
+            }
+
             res.status(500).json({ error: error.message });
         }
     },

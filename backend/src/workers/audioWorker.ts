@@ -39,25 +39,16 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
 
 // --- WORKER ---
 const worker = new Worker('audio-processing-queue', async (job: Job) => {
-    const { recordingId, fileKey, mimeType } = job.data;
+    const { recordingId, fileUri, mimeType } = job.data;
     console.log(`[Worker] Processing job ${job.id} for recording ${recordingId}`);
 
     try {
         // Update status in Redis
         await connection.hset(`status:${recordingId}`, 'status', 'PROCESSING');
 
-        // 1. Get file from Redis
-        console.log(`[Worker] Fetching file from Redis key: ${fileKey}`);
-        const fileBuffer = await connection.getBuffer(fileKey);
+        console.log(`[Worker] Using Gemini File URI: ${fileUri}`);
 
-        if (!fileBuffer) {
-            throw new Error('File not found in Redis (expired or missing)');
-        }
-
-        console.log(`[Worker] File retrieved (${fileBuffer.length} bytes). Processing with Gemini...`);
-
-        // 2. Process with Gemini - Using Gemini 2.0 Flash (Experimental)
-        const audioBase64 = fileBuffer.toString('base64');
+        // Process with Gemini 2.0 Flash using file URI (no Buffer needed)
         const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
 
         const prompt = `
@@ -81,9 +72,9 @@ Devuelve ÚNICAMENTE un objeto JSON válido con esta estructura:
 
         const result = await model.generateContent([
             {
-                inlineData: {
+                fileData: {
                     mimeType: mimeType || "audio/webm",
-                    data: audioBase64
+                    fileUri: fileUri
                 }
             },
             { text: prompt }
@@ -132,13 +123,8 @@ Devuelve ÚNICAMENTE un objeto JSON válido con esta estructura:
             console.error('[Worker] Error updating recording in DB:', dbError);
         }
 
-        // --- CACHE MODE: AGGRESSIVE CLEANUP ---
-        // Delete audio file immediately to save space (Free Tier support)
-        console.log(`[Worker] Cache Mode: Deleting file ${fileKey} to free up Redis space...`);
-        await connection.del(fileKey);
-
-        // Also set a short TTL for the status key just in case
-        await connection.expire(`status:${recordingId}`, 3600); // 1 hour retention for status
+        // Note: Gemini File API automatically deletes files after processing
+        // No need to manually clean up like we did with Redis
 
         console.log(`[Worker] Job ${job.id} completed successfully`);
         return { success: true };
