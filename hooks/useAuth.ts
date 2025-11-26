@@ -1,140 +1,92 @@
 import { useState, useEffect } from 'react';
-import { createClient, User, Session } from '@supabase/supabase-js';
 import { AppUser } from '../types';
 
-const SUPABASE_URL = 'https://enuwmaxkigsgnftcjxob.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVudXdtYXhraWdzZ25mdGNqeG9iIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM2ODIzNTIsImV4cCI6MjA3OTI1ODM1Mn0.0wG0e7CLnIQz6RRePpwwDWpiphXH3zsh-qM8xMgAV2Y';
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:10000';
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+interface AuthResponse {
+    success: boolean;
+    user?: AppUser;
+    error?: string;
+    message?: string;
+}
 
 export function useAuth() {
-    const [user, setUser] = useState<User | null>(null);
     const [appUser, setAppUser] = useState<AppUser | null>(null);
     const [loading, setLoading] = useState(true);
-    const [session, setSession] = useState<Session | null>(null);
 
     useEffect(() => {
-        // Get initial session
-        supabase.auth.getSession().then(({ data: { session } }) => {
-            setSession(session);
-            setUser(session?.user ?? null);
-            if (session?.user) {
-                fetchAppUser(session.user.id);
-            } else {
-                setLoading(false);
+        // Check if user is logged in (from localStorage)
+        const storedUser = localStorage.getItem('app_user');
+        if (storedUser) {
+            try {
+                const user: AppUser = JSON.parse(storedUser);
+                setAppUser(user);
+            } catch (error) {
+                console.error('Error parsing stored user:', error);
+                localStorage.removeItem('app_user');
             }
-        });
-
-        // Listen for auth changes
-        const {
-            data: { subscription },
-        } = supabase.auth.onAuthStateChange((_event, session) => {
-            setSession(session);
-            setUser(session?.user ?? null);
-            if (session?.user) {
-                fetchAppUser(session.user.id);
-            } else {
-                setAppUser(null);
-                setLoading(false);
-            }
-        });
-
-        return () => subscription.unsubscribe();
+        }
+        setLoading(false);
     }, []);
 
-    const fetchAppUser = async (userId: string) => {
+    const signUp = async (email: string, password: string, organizationName: string, fullName?: string): Promise<{ success: boolean; error?: string }> => {
         try {
-            const { data, error } = await supabase
-                .from('app_users')
-                .select('*')
-                .eq('id', userId)
-                .single();
-
-            if (error) throw error;
-
-            if (data) {
-                setAppUser({
-                    id: data.id,
-                    email: data.email,
-                    organizationId: data.organization_id,
-                    role: data.role,
-                    fullName: data.full_name,
-                    createdAt: data.created_at ? new Date(data.created_at).getTime() : undefined,
-                    lastLogin: data.last_login ? new Date(data.last_login).getTime() : undefined,
-                });
-            }
-        } catch (error) {
-            console.error('Error fetching app user:', error);
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const signUp = async (email: string, password: string, organizationName: string, fullName?: string) => {
-        try {
-            // 1. Create auth user
-            const { data: authData, error: authError } = await supabase.auth.signUp({
-                email,
-                password,
-                options: {
-                    emailRedirectTo: 'https://kipu-4n1y6vsqd-alexandrade-s-os-projects.vercel.app'
-                }
+            const response = await fetch(`${API_URL}/api/auth/signup`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    email,
+                    password,
+                    name: fullName || email.split('@')[0],
+                    organizationId: null // Will be created by backend if needed
+                }),
             });
 
-            if (authError) throw authError;
-            if (!authData.user) throw new Error('No user returned from signup');
+            const data: AuthResponse = await response.json();
 
-            // 2. Create organization
-            const { data: orgData, error: orgError } = await supabase
-                .from('organizations')
-                .insert([{ name: organizationName }])
-                .select()
-                .single();
+            if (!response.ok) {
+                throw new Error(data.error || 'Signup failed');
+            }
 
-            if (orgError) throw orgError;
-
-            // 3. Create app_user (first user is admin)
-            const { error: userError } = await supabase
-                .from('app_users')
-                .insert([
-                    {
-                        id: authData.user.id,
-                        email: email,
-                        organization_id: orgData.id,
-                        role: 'admin',
-                        full_name: fullName,
-                    },
-                ]);
-
-            if (userError) throw userError;
+            if (data.user) {
+                setAppUser(data.user);
+                localStorage.setItem('app_user', JSON.stringify(data.user));
+            }
 
             return { success: true };
         } catch (error: any) {
             console.error('Signup error:', error);
             return {
                 success: false,
-                error: `[${error.code || 'UNKNOWN'}] ${error.message}` +
-                    (error.details ? ` (${error.details})` : '') +
-                    (error.hint ? ` Hint: ${error.hint}` : '')
+                error: error.message || 'An error occurred during signup'
             };
         }
     };
 
-    const signIn = async (email: string, password: string) => {
+    const signIn = async (email: string, password: string): Promise<{ success: boolean; error?: string }> => {
         try {
-            const { data, error } = await supabase.auth.signInWithPassword({
-                email,
-                password,
+            const response = await fetch(`${API_URL}/api/auth/login`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    email, password
+
+                }),
             });
 
-            if (error) throw error;
+            const data: AuthResponse = await response.json();
 
-            // Update last login
+            if (!response.ok) {
+                throw new Error(data.error || 'Login failed');
+            }
+
             if (data.user) {
-                await supabase
-                    .from('app_users')
-                    .update({ last_login: new Date().toISOString() })
-                    .eq('id', data.user.id);
+                setAppUser(data.user);
+                localStorage.setItem('app_user', JSON.stringify(data.user));
             }
 
             return { success: true };
@@ -142,46 +94,32 @@ export function useAuth() {
             console.error('Signin error:', error);
             return {
                 success: false,
-                error: `[${error.code || 'UNKNOWN'}] ${error.message}` +
-                    (error.details ? ` (${error.details})` : '') +
-                    (error.hint ? ` Hint: ${error.hint}` : '')
-            };
-        }
-    };
-
-    const signInWithGoogle = async () => {
-        try {
-            const { error } = await supabase.auth.signInWithOAuth({
-                provider: 'google',
-                options: {
-                    redirectTo: window.location.origin
-                }
-            });
-
-            if (error) throw error;
-            return { success: true };
-        } catch (error: any) {
-            console.error('Google signin error:', error);
-            return {
-                success: false,
-                error: `[${error.code || 'UNKNOWN'}] ${error.message}`
+                error: error.message || 'Invalid email or password'
             };
         }
     };
 
     const signOut = async () => {
-        const { error } = await supabase.auth.signOut();
-        if (error) console.error('Signout error:', error);
+        try {
+            await fetch(`${API_URL}/api/auth/logout`, {
+                method: 'POST',
+            });
+        } catch (error) {
+            console.error('Signout error:', error);
+        } finally {
+            setAppUser(null);
+            localStorage.removeItem('app_user');
+        }
     };
 
     return {
-        user,
+        user: appUser, // For backward compatibility
         appUser,
         loading,
-        session,
+        session: appUser ? { user: appUser } : null, // Mock session for compatibility
         signUp,
         signIn,
-        signInWithGoogle,
+        signInWithGoogle: async () => ({ success: false, error: 'Google auth not implemented' }), // Placeholder
         signOut,
     };
 }

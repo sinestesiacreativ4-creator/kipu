@@ -13,8 +13,25 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 // Middleware
+const allowedOrigins = [
+    process.env.FRONTEND_URL,
+    'http://localhost:3000',
+    'http://localhost:5173',
+    'http://localhost:5174'
+].filter(Boolean); // Remove undefined values
+
 app.use(cors({
-    origin: ['http://localhost:3000', 'http://localhost:5173', 'http://localhost:5174'],
+    origin: (origin, callback) => {
+        // Allow requests with no origin (like mobile apps or curl requests)
+        if (!origin) return callback(null, true);
+
+        if (allowedOrigins.includes(origin)) {
+            callback(null, true);
+        } else {
+            console.warn(`[CORS] Rejected request from origin: ${origin}`);
+            callback(new Error('Not allowed by CORS'));
+        }
+    },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization']
@@ -22,6 +39,13 @@ app.use(cors({
 app.use(express.json());
 
 // Routes
+// 0. Authentication
+import { AuthController } from './controllers/authController';
+app.post('/api/auth/signup', AuthController.signup);
+app.post('/api/auth/login', AuthController.login);
+app.get('/api/auth/me', AuthController.getCurrentUser);
+app.post('/api/auth/logout', AuthController.logout);
+
 // 1. Subida directa a Redis (Multipart)
 app.post('/api/upload-redis', UploadController.uploadMiddleware, UploadController.uploadToRedis);
 
