@@ -25,7 +25,7 @@ const redis = new IORedis(redisUrl, redisOptions);
 const upload = multer({
     storage: multer.memoryStorage(),
     limits: {
-        fileSize: 20 * 1024 * 1024, // 20MB limit
+        fileSize: 60 * 1024 * 1024, // 60MB limit (approx 1 hour at 128kbps)
     }
 });
 
