@@ -5,12 +5,12 @@ import { UploadController } from './controllers/uploadController';
 import { DataController } from './controllers/dataController';
 import prisma from './services/prisma';
 // Import worker to start it in the same process
-import './workers/audioWorker';
+// import './workers/audioWorker'; // COMENTADO: El worker corre en un proceso separado en Render
 
 dotenv.config();
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 3000;
 
 // Middleware
 const allowedOrigins = [
