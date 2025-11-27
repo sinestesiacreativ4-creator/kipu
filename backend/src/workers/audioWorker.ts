@@ -72,7 +72,7 @@ async function splitAudio(filePath: string, chunkDurationSec: number = 120): Pro
  * Analyze a single audio chunk
  */
 async function analyzeChunk(chunkPath: string, index: number, total: number): Promise<any> {
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-001" });
 
     const fileBuffer = fs.readFileSync(chunkPath);
     const audioBase64 = fileBuffer.toString('base64');
