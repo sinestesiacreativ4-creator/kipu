@@ -171,127 +171,148 @@ function mergeAnalyses(results: any[]): any {
 }
 
 // --- WORKER ---
+const PROCESSING_TIMEOUT = 15 * 60 * 1000; // 15 minutes max
+
 const worker = new Worker('audio-processing-queue', async (job: Job) => {
     const { recordingId, fileKey, fileUri, mimeType, useRedis } = job.data;
     console.log(`[Worker] Processing job ${job.id} for recording ${recordingId}`);
 
     const tempDir = os.tmpdir();
-    const ext = mimeType?.includes('mp4') ? '.mp4' : '.webm'; // Simple extension detection
+    const ext = mimeType?.includes('mp4') ? '.mp4' : '.webm';
     const tempFilePath = path.join(tempDir, `${recordingId}${ext}`);
+    let chunks: string[] = [];
 
-    try {
-        // Update status
-        await connection.hset(`status:${recordingId}`, 'status', 'PROCESSING');
+    // Wrap entire process in a timeout
+    const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('Processing timeout exceeded (15 minutes)')), PROCESSING_TIMEOUT);
+    });
 
-        // 1. Retrieve File to Temp
-        if (useRedis) {
-            console.log(`[Worker] Fetching from Redis...`);
-            const fileBuffer = await connection.getBuffer(fileKey);
-            if (!fileBuffer) throw new Error('File not found in Redis');
-            fs.writeFileSync(tempFilePath, fileBuffer);
-        } else {
-            console.log(`[Worker] Downloading from Gemini URI not supported for chunking yet. Assuming direct upload or implementing download logic here.`);
-            // NOTE: For Gemini File API, we can't easily download back. 
-            // Ideally, the producer should have saved to S3 or similar if it's large.
-            // For now, assuming we might skip chunking for Gemini-hosted files OR 
-            // we need to change Producer to save to disk/S3 first.
-            // FALLBACK: If it's a Gemini URI, we try to process it as a whole (legacy mode)
-            // or throw error if we strictly want chunking.
+    const processingPromise = (async () => {
+        try {
+            // Update status
+            await connection.hset(`status:${recordingId}`, 'status', 'PROCESSING');
 
-            // For this refactor, let's assume we ONLY support Redis-uploaded files for chunking 
-            // OR we implement a way to get the file. 
-            // Since the user asked to refactor the Consumer, and the Producer puts large files in Gemini...
-            // We actually have a problem: Gemini File API doesn't allow downloading the file content back easily via API for processing with ffmpeg.
-            // FIX: We will assume for this step that we are handling files that we HAVE access to.
-            // If the file is already in Gemini, we can't chunk it with ffmpeg locally unless we have the bytes.
+            // 1. Retrieve File to Temp
+            if (useRedis) {
+                console.log(`[Worker] Fetching from Redis...`);
+                const fileBuffer = await connection.getBuffer(fileKey);
+                if (!fileBuffer) throw new Error('File not found in Redis');
+                fs.writeFileSync(tempFilePath, fileBuffer);
+            } else {
+                console.log(`[Worker] Downloading from Gemini URI not supported for chunking yet.`);
+                throw new Error("Chunking requires file access. Gemini File API storage does not support direct download for chunking.");
+            }
 
-            throw new Error("Chunking requires file access. Gemini File API storage does not support direct download for chunking.");
-        }
+            // 2. Split Audio
+            console.log(`[Worker] Splitting audio file: ${tempFilePath}`);
+            chunks = await splitAudio(tempFilePath);
+            console.log(`[Worker] Created ${chunks.length} chunks`);
 
-        // 2. Split Audio
-        console.log(`[Worker] Splitting audio file: ${tempFilePath}`);
-        const chunks = await splitAudio(tempFilePath);
-        console.log(`[Worker] Created ${chunks.length} chunks`);
+            // 3. Process Chunks
+            const results = [];
+            for (let i = 0; i < chunks.length; i++) {
+                console.log(`[Worker] Processing chunk ${i + 1}/${chunks.length}`);
+                // Update progress
+                await connection.hset(`status:${recordingId}`, 'progress', Math.round(((i) / chunks.length) * 100).toString());
 
-        // 3. Process Chunks
-        const results = [];
-        for (let i = 0; i < chunks.length; i++) {
-            console.log(`[Worker] Processing chunk ${i + 1}/${chunks.length}`);
-            // Update progress
-            await connection.hset(`status:${recordingId}`, 'progress', Math.round(((i) / chunks.length) * 100).toString());
+                // Retry logic for 429 errors
+                let retries = 0;
+                const maxRetries = 3;
+                let success = false;
 
-            // Retry logic for 429 errors
-            let retries = 0;
-            const maxRetries = 3;
-            let success = false;
+                while (!success && retries <= maxRetries) {
+                    try {
+                        const result = await analyzeChunk(chunks[i], i, chunks.length);
+                        results.push(result);
+                        success = true;
 
-            while (!success && retries <= maxRetries) {
-                try {
-                    const result = await analyzeChunk(chunks[i], i, chunks.length);
-                    results.push(result);
-                    success = true;
+                        // Rate limiting delay between successful chunks (10 seconds)
+                        if (i < chunks.length - 1) {
+                            console.log('[Worker] Waiting 10s to respect rate limits...');
+                            await new Promise(resolve => setTimeout(resolve, 10000));
+                        }
 
-                    // Rate limiting delay between successful chunks (10 seconds)
-                    if (i < chunks.length - 1) {
-                        console.log('[Worker] Waiting 10s to respect rate limits...');
-                        await new Promise(resolve => setTimeout(resolve, 10000));
-                    }
-
-                } catch (err: any) {
-                    if (err.message && err.message.includes('429') && retries < maxRetries) {
-                        retries++;
-                        const delay = Math.pow(2, retries) * 5000 + Math.random() * 1000; // Exponential backoff: 5s, 10s, 20s...
-                        console.warn(`[Worker] 429 Too Many Requests. Retrying chunk ${i + 1} in ${Math.round(delay / 1000)}s (Attempt ${retries}/${maxRetries})`);
-                        await new Promise(resolve => setTimeout(resolve, delay));
-                    } else {
-                        console.error(`[Worker] Error processing chunk ${i + 1}:`, err);
-                        // If it's not a 429 or we ran out of retries, we skip this chunk but continue with others
-                        // to try to salvage partial results.
-                        break;
+                    } catch (err: any) {
+                        if (err.message && err.message.includes('429') && retries < maxRetries) {
+                            retries++;
+                            const delay = Math.pow(2, retries) * 5000 + Math.random() * 1000;
+                            console.warn(`[Worker] 429 Too Many Requests. Retrying chunk ${i + 1} in ${Math.round(delay / 1000)}s (Attempt ${retries}/${maxRetries})`);
+                            await new Promise(resolve => setTimeout(resolve, delay));
+                        } else {
+                            console.error(`[Worker] Error processing chunk ${i + 1}:`, err.message);
+                            // Continue with other chunks to salvage partial results
+                            break;
+                        }
                     }
                 }
             }
-        }
 
-        // 4. Merge Results
-        const finalAnalysis = mergeAnalyses(results);
-
-        // 5. Save & Cleanup
-        await connection.hset(`status:${recordingId}`, {
-            status: 'COMPLETED',
-            analysis: JSON.stringify(finalAnalysis)
-        } as any);
-
-        await prisma.recording.update({
-            where: { id: recordingId },
-            data: {
-                analysis: finalAnalysis,
-                status: 'COMPLETED'
+            if (results.length === 0) {
+                throw new Error('All chunks failed to process');
             }
-        });
 
-        // Cleanup temp files
-        if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
-        chunks.forEach(c => {
-            if (fs.existsSync(c)) fs.unlinkSync(c);
-        });
+            // 4. Merge Results
+            const finalAnalysis = mergeAnalyses(results);
 
-        if (useRedis) {
-            await connection.del(fileKey);
+            // 5. Save & Cleanup
+            await connection.hset(`status:${recordingId}`, {
+                status: 'COMPLETED',
+                analysis: JSON.stringify(finalAnalysis)
+            } as any);
+
+            await prisma.recording.update({
+                where: { id: recordingId },
+                data: {
+                    analysis: finalAnalysis,
+                    status: 'COMPLETED'
+                }
+            });
+
+            // Cleanup temp files
+            if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
+            chunks.forEach(c => {
+                if (fs.existsSync(c)) fs.unlinkSync(c);
+            });
+
+            if (useRedis) {
+                await connection.del(fileKey);
+            }
+
+            console.log(`[Worker] Job ${job.id} completed successfully`);
+            return { success: true };
+
+        } catch (error: any) {
+            console.error(`[Worker] Job ${job.id} failed:`, error.message);
+
+            // Mark as ERROR in both Redis and DB
+            await connection.hset(`status:${recordingId}`, {
+                status: 'ERROR',
+                error: error.message
+            } as any);
+
+            try {
+                await prisma.recording.update({
+                    where: { id: recordingId },
+                    data: { status: 'ERROR' }
+                });
+            } catch (dbErr) {
+                console.error(`[Worker] Failed to update DB status:`, dbErr);
+            }
+
+            // Cleanup
+            if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
+            chunks.forEach(c => {
+                if (fs.existsSync(c)) {
+                    try { fs.unlinkSync(c); } catch { }
+                }
+            });
+
+            throw error;
         }
+    })();
 
-        console.log(`[Worker] Job ${job.id} completed`);
-        return { success: true };
-
-    } catch (error: any) {
-        console.error(`[Worker] Job ${job.id} failed:`, error);
-        await connection.hset(`status:${recordingId}`, { status: 'ERROR', error: error.message } as any);
-
-        // Cleanup
-        if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
-
-        throw error;
-    }
+    // Race between processing and timeout
+    return Promise.race([processingPromise, timeoutPromise]);
 }, { connection });
 
 console.log('[Worker] Audio Processing Worker Started (Chunking Enabled)...');
