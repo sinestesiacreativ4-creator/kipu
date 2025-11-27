@@ -16,11 +16,15 @@ export interface TranscriptSegment {
 
 export interface AIAnalysis {
   title: string;
-  summary: string[];
-  actionItems: string[];
-  transcript: TranscriptSegment[];
   category: string;
   tags: string[];
+  summary: string[];
+  decisions?: string[];
+  actionItems: string[];
+  participants?: string[];
+  keyTopics?: string[];
+  executiveSummary?: string;
+  transcript: TranscriptSegment[];
 }
 
 export interface Marker {

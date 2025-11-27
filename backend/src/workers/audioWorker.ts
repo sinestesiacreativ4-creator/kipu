@@ -78,21 +78,31 @@ async function analyzeChunk(chunkPath: string, index: number, total: number): Pr
     const audioBase64 = fileBuffer.toString('base64');
 
     const prompt = `
-    Analiza este SEGMENTO ${index + 1} de ${total} de una grabación.
+    Analiza este SEGMENTO ${index + 1} de ${total} de una grabación de audio.
     
-    Genera un JSON con:
+    Extrae la siguiente información en formato JSON:
     {
-      "summary": ["Puntos clave de este segmento"],
+      "summary": ["Punto clave 1", "Punto clave 2"],
+      "decisions": ["Decisión tomada 1", "Decisión tomada 2"],
+      "actionItems": ["Tarea pendiente 1 (Responsable)", "Tarea pendiente 2"],
+      "participants": ["Nombre 1", "Nombre 2"],
+      "keyTopics": ["Tema principal 1", "Tema principal 2"],
       "transcript": [
-        {"speaker": "Hablante", "text": "Texto", "timestamp": "MM:SS (relativo al segmento)"}
+        {"speaker": "Hablante", "text": "Texto exacto", "timestamp": "MM:SS"}
       ]
     }
+    
+    IMPORTANTE:
+    - Los "decisions" son acuerdos o resoluciones concretas
+    - Los "actionItems" deben incluir responsable entre paréntesis si se menciona
+    - Los "participants" son personas mencionadas o identificables por voz
+    - Los "keyTopics": temas específicos discutidos (ej: "Presupuesto Q1", no "Finanzas")
     `;
 
     const result = await model.generateContent([
         {
             inlineData: {
-                mimeType: "audio/webm", // Assuming webm/opus from frontend
+                mimeType: "audio/webm",
                 data: audioBase64
             }
         },
@@ -105,29 +115,57 @@ async function analyzeChunk(chunkPath: string, index: number, total: number): Pr
 }
 
 /**
- * Merge analysis results
+ * Merge analysis results and generate intelligent summary
  */
 function mergeAnalyses(results: any[]): any {
     const merged = {
-        title: "Grabación Procesada",
+        title: "",
         category: "General",
         tags: [] as string[],
         summary: [] as string[],
+        decisions: [] as string[],
         actionItems: [] as string[],
+        participants: [] as string[],
+        keyTopics: [] as string[],
+        executiveSummary: "",
         transcript: [] as any[]
     };
 
+    // Consolidate all fields from chunks
     results.forEach((res, index) => {
         if (res.summary) merged.summary.push(...res.summary);
+        if (res.decisions) merged.decisions.push(...res.decisions);
+        if (res.actionItems) merged.actionItems.push(...res.actionItems);
+        if (res.participants) merged.participants.push(...res.participants);
+        if (res.keyTopics) merged.keyTopics.push(...res.keyTopics);
+
         if (res.transcript) {
-            // Adjust timestamps would be complex, simply appending for now
-            const adjustedTranscript = res.transcript.map((t: any) => ({
+            merged.transcript.push(...res.transcript.map((t: any) => ({
                 ...t,
-                text: `[Parte ${index + 1}] ${t.text}`
-            }));
-            merged.transcript.push(...adjustedTranscript);
+                segment: index + 1
+            })));
         }
     });
+
+    // Deduplicate arrays
+    merged.participants = [...new Set(merged.participants)];
+    merged.keyTopics = [...new Set(merged.keyTopics)];
+    merged.tags = merged.keyTopics.slice(0, 5); // Use top 5 topics as tags
+
+    // Generate intelligent title
+    if (merged.keyTopics.length > 0) {
+        const mainTopic = merged.keyTopics[0];
+        const category = merged.decisions.length > 0 ? "Reunión de Decisiones" :
+            merged.actionItems.length > 0 ? "Reunión de Trabajo" : "Grabación";
+        merged.title = `${category}: ${mainTopic}`;
+        merged.category = category;
+    } else {
+        merged.title = "Grabación Procesada";
+    }
+
+    // Generate executive summary (first 3 most important points)
+    const topPoints = merged.summary.slice(0, 3);
+    merged.executiveSummary = topPoints.join(". ") + ".";
 
     return merged;
 }
