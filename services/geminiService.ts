@@ -201,42 +201,53 @@ export const chatWithMeeting = async (
   userMessage: string
 ): Promise<string> => {
   const model = genAI.getGenerativeModel({
-    model: "gemini-2.0-flash-exp"
+    model: "gemini-2.5-flash"
   });
 
-  // Construct context from analysis
+  // Construct enhanced context from analysis
   const context = `
     Estás actuando como un asistente experto que responde preguntas sobre una reunión específica.
-    Aquí tienes los detalles de la reunión:
+    Aquí tienes los detalles COMPLETOS de la reunión:
     
     TÍTULO: ${analysis.title}
     CATEGORÍA: ${analysis.category}
+    ${analysis.executiveSummary ? `\nRESUMEN EJECUTIVO:\n${analysis.executiveSummary}\n` : ''}
+    ${analysis.participants && analysis.participants.length > 0 ? `\nPARTICIPANTES:\n${analysis.participants.join(', ')}\n` : ''}
+    ${analysis.keyTopics && analysis.keyTopics.length > 0 ? `\nTEMAS PRINCIPALES:\n${analysis.keyTopics.join(', ')}\n` : ''}
     
-    RESUMEN:
+    PUNTOS CLAVE:
     ${analysis.summary.join('\n')}
+    ${analysis.decisions && analysis.decisions.length > 0 ? `\nDECISIONES TOMADAS:\n${analysis.decisions.join('\n')}` : ''}
+    ${analysis.actionItems.length > 0 ? `\nTAREAS PENDIENTES:\n${analysis.actionItems.join('\n')}` : ''}
     
-    TAREAS:
-    ${analysis.actionItems.join('\n')}
-    
-    TRANSCRIPCIÓN (fragmento):
-    ${analysis.transcript.slice(0, 50).map(t => `${t.speaker}: ${t.text}`).join('\n')}
-    ... (transcripción truncada para brevedad si es muy larga)
+    TRANSCRIPCIÓN COMPLETA:
+    ${analysis.transcript.map(t => `[${t.timestamp}] ${t.speaker}: ${t.text}`).join('\n')}
   `;
 
   // Construct chat history for the prompt
-  const chatHistory = history.map(msg =>
-    `${msg.role === 'user' ? 'Usuario' : 'Asistente'}: ${msg.content}`
-  ).join('\n');
+  const chatHistory = history
+    .filter(msg => msg.role !== 'assistant' || msg.id !== 'welcome') // Exclude welcome message
+    .slice(-5) // Keep last 5 messages for context
+    .map(msg =>
+      `${msg.role === 'user' ? 'Usuario' : 'Asistente'}: ${msg.content}`
+    ).join('\n');
 
   const prompt = `
     ${context}
 
-    HISTORIAL DE CHAT:
-    ${chatHistory}
+    ${chatHistory ? `HISTORIAL DE CHAT RECIENTE:\n${chatHistory}\n` : ''}
     
     USUARIO: ${userMessage}
     
-    ASISTENTE (Responde de manera concisa, útil y basada SOLO en la información de la reunión):
+    INSTRUCCIONES:
+    - Responde de manera concisa, útil y basada SOLO en la información de la reunión
+    - Si preguntan por decisiones, usa la sección "DECISIONES TOMADAS"
+    - Si preguntan por participantes, usa la sección "PARTICIPANTES"
+    - Si preguntan por tareas, usa la sección "TAREAS PENDIENTES"
+    - Cita timestamps [MM:SS] cuando sea relevante
+    - Si no sabes algo, di que no está en la reunión
+    
+    ASISTENTE:
   `;
 
   const result = await model.generateContent(prompt);
