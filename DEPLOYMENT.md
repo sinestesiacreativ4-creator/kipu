@@ -75,8 +75,8 @@ DATABASE_URL=(se conecta automáticamente desde kipu-db)
 
 ### Comandos de Build/Start:
 
-- **Build:** `npm install && npx prisma generate && npm run build`
-- **Start:** `npx prisma generate && npx prisma db push && node dist/index.js`
+- **Build:** `npm install && npx prisma generate && tsc`
+- **Start:** `node dist/index.js`
 
 ---
 
