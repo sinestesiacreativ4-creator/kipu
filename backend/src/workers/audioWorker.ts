@@ -182,12 +182,36 @@ const worker = new Worker('audio-processing-queue', async (job: Job) => {
             // Update progress
             await connection.hset(`status:${recordingId}`, 'progress', Math.round(((i) / chunks.length) * 100).toString());
 
-            try {
-                const result = await analyzeChunk(chunks[i], i, chunks.length);
-                results.push(result);
-            } catch (err) {
-                console.error(`[Worker] Error processing chunk ${i + 1}:`, err);
-                // Continue with other chunks
+            // Retry logic for 429 errors
+            let retries = 0;
+            const maxRetries = 3;
+            let success = false;
+
+            while (!success && retries <= maxRetries) {
+                try {
+                    const result = await analyzeChunk(chunks[i], i, chunks.length);
+                    results.push(result);
+                    success = true;
+
+                    // Rate limiting delay between successful chunks (10 seconds)
+                    if (i < chunks.length - 1) {
+                        console.log('[Worker] Waiting 10s to respect rate limits...');
+                        await new Promise(resolve => setTimeout(resolve, 10000));
+                    }
+
+                } catch (err: any) {
+                    if (err.message && err.message.includes('429') && retries < maxRetries) {
+                        retries++;
+                        const delay = Math.pow(2, retries) * 5000 + Math.random() * 1000; // Exponential backoff: 5s, 10s, 20s...
+                        console.warn(`[Worker] 429 Too Many Requests. Retrying chunk ${i + 1} in ${Math.round(delay / 1000)}s (Attempt ${retries}/${maxRetries})`);
+                        await new Promise(resolve => setTimeout(resolve, delay));
+                    } else {
+                        console.error(`[Worker] Error processing chunk ${i + 1}:`, err);
+                        // If it's not a 429 or we ran out of retries, we skip this chunk but continue with others
+                        // to try to salvage partial results.
+                        break;
+                    }
+                }
             }
         }
 
