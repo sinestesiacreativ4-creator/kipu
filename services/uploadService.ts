@@ -4,13 +4,14 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
 export const uploadService = {
     /**
-     * Upload audio file to Redis via backend
+     * Upload audio file to Redis via backend with retry logic
      */
     async uploadFileToRedis(
         file: Blob,
         recordingId: string,
         userId: string,
-        organizationId: string
+        organizationId: string,
+        onProgress?: (progress: number) => void
     ): Promise<void> {
         const formData = new FormData();
         formData.append('file', file, `${recordingId}.webm`);
@@ -18,18 +19,45 @@ export const uploadService = {
         formData.append('userId', userId);
         formData.append('organizationId', organizationId);
 
-        const response = await fetch(`${API_URL}/api/upload-redis`, {
-            method: 'POST',
-            body: formData
-        });
+        const MAX_RETRIES = 3;
+        let attempt = 0;
 
-        if (!response.ok) {
-            const errorText = await response.text();
-            throw new Error(`Upload failed: ${response.status} - ${errorText}`);
+        while (attempt < MAX_RETRIES) {
+            try {
+                if (onProgress) onProgress(10 + (attempt * 10)); // Fake progress to show activity
+
+                const response = await fetch(`${API_URL}/api/upload-redis`, {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    // Don't retry client errors (4xx), only server errors (5xx)
+                    if (response.status >= 400 && response.status < 500) {
+                        throw new Error(`Upload failed: ${response.status} - ${errorText}`);
+                    }
+                    throw new Error(`Server error: ${response.status} - ${errorText}`);
+                }
+
+                const result = await response.json();
+                console.log('[UploadService] Upload successful:', result);
+                if (onProgress) onProgress(100);
+                return; // Success
+
+            } catch (error: any) {
+                attempt++;
+                console.warn(`[UploadService] Upload attempt ${attempt} failed:`, error);
+
+                if (attempt >= MAX_RETRIES) {
+                    throw new Error(`Failed to upload after ${MAX_RETRIES} attempts: ${error.message}`);
+                }
+
+                // Exponential backoff: 2s, 4s, 8s
+                const delay = Math.pow(2, attempt) * 1000;
+                await new Promise(resolve => setTimeout(resolve, delay));
+            }
         }
-
-        const result = await response.json();
-        console.log('[UploadService] Upload successful:', result);
     },
 
     /**
@@ -39,8 +67,9 @@ export const uploadService = {
         recordingId: string,
         onUpdate: (status: string, analysis?: any) => void
     ): Promise<void> {
-        const maxAttempts = 120; // 10 minutes (5 second intervals)
+        const maxAttempts = 180; // 15 minutes (5 second intervals) to match backend timeout
         let attempts = 0;
+        let consecutiveErrors = 0;
 
         const poll = async () => {
             try {
@@ -53,13 +82,14 @@ export const uploadService = {
                             attempts++;
                             setTimeout(poll, 5000);
                         } else {
-                            onUpdate('ERROR', 'Timeout waiting for processing');
+                            onUpdate('ERROR', 'Timeout waiting for processing start');
                         }
                         return;
                     }
                     throw new Error(`Status check failed: ${response.status}`);
                 }
 
+                consecutiveErrors = 0; // Reset error count on success
                 const status = await response.json();
                 console.log('[UploadService] Status:', status);
 
@@ -73,12 +103,24 @@ export const uploadService = {
                         attempts++;
                         setTimeout(poll, 5000);
                     } else {
-                        onUpdate('ERROR', 'Processing timeout');
+                        onUpdate('ERROR', 'Processing timeout exceeded');
                     }
                 }
             } catch (error: any) {
                 console.error('[UploadService] Polling error:', error);
-                onUpdate('ERROR', error.message);
+                consecutiveErrors++;
+
+                // If we have too many consecutive connection errors, fail
+                if (consecutiveErrors > 10) { // 50 seconds of downtime
+                    onUpdate('ERROR', 'Connection lost with server');
+                    return;
+                }
+
+                // Retry polling even on error (network blip)
+                if (attempts < maxAttempts) {
+                    attempts++;
+                    setTimeout(poll, 5000);
+                }
             }
         };
 
@@ -96,10 +138,6 @@ export const uploadService = {
         organizationId: string,
         onProgress?: (progress: number) => void
     ): Promise<void> {
-        if (onProgress) onProgress(0);
-
-        await this.uploadFileToRedis(blob, recordingId, userId, organizationId);
-
-        if (onProgress) onProgress(100);
+        await this.uploadFileToRedis(blob, recordingId, userId, organizationId, onProgress);
     }
 };
