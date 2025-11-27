@@ -2,7 +2,8 @@
 FROM node:20-slim
 
 # Install system dependencies (needed for some node modules)
-RUN apt-get update && apt-get install -y openssl ca-certificates
+# Install system dependencies (needed for some node modules and audio processing)
+RUN apt-get update -y && apt-get install -y openssl ca-certificates ffmpeg
 
 # Set working directory
 WORKDIR /app
