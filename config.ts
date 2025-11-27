@@ -1,3 +1,3 @@
 export const config = {
-    GEMINI_API_KEY: 'AIzaSyAAFAC_qMUR664svNCsQXyN8ZZvoBjY5bg'
+    GEMINI_API_KEY: process.env.GEMINI_API_KEY || ''
 };
