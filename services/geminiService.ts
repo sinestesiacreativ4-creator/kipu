@@ -204,7 +204,7 @@ export const chatWithMeeting = async (
     model: "gemini-2.5-flash"
   });
 
-  // Construct enhanced context from analysis
+  // Construct enhanced context from analysis (with backwards compatibility)
   const context = `
     Estás actuando como un asistente experto que responde preguntas sobre una reunión específica.
     Aquí tienes los detalles COMPLETOS de la reunión:
@@ -216,12 +216,15 @@ export const chatWithMeeting = async (
     ${analysis.keyTopics && analysis.keyTopics.length > 0 ? `\nTEMAS PRINCIPALES:\n${analysis.keyTopics.join(', ')}\n` : ''}
     
     PUNTOS CLAVE:
-    ${analysis.summary.join('\n')}
+    ${analysis.summary && analysis.summary.length > 0 ? analysis.summary.join('\n') : 'No disponible'}
     ${analysis.decisions && analysis.decisions.length > 0 ? `\nDECISIONES TOMADAS:\n${analysis.decisions.join('\n')}` : ''}
-    ${analysis.actionItems.length > 0 ? `\nTAREAS PENDIENTES:\n${analysis.actionItems.join('\n')}` : ''}
+    ${analysis.actionItems && analysis.actionItems.length > 0 ? `\nTAREAS PENDIENTES:\n${analysis.actionItems.join('\n')}` : ''}
     
-    TRANSCRIPCIÓN COMPLETA:
-    ${analysis.transcript.map(t => `[${t.timestamp}] ${t.speaker}: ${t.text}`).join('\n')}
+    TRANSCRIPCIÓN ${analysis.transcript && analysis.transcript.length > 50 ? 'COMPLETA' : ''}:
+    ${analysis.transcript && analysis.transcript.length > 0
+      ? analysis.transcript.slice(0, 100).map(t => `[${t.timestamp}] ${t.speaker}: ${t.text}`).join('\n')
+      : 'No disponible'}
+    ${analysis.transcript && analysis.transcript.length > 100 ? '\n... (transcripción muy larga, solo se muestran primeros 100 segmentos)' : ''}
   `;
 
   // Construct chat history for the prompt
@@ -241,19 +244,28 @@ export const chatWithMeeting = async (
     
     INSTRUCCIONES:
     - Responde de manera concisa, útil y basada SOLO en la información de la reunión
-    - Si preguntan por decisiones, usa la sección "DECISIONES TOMADAS"
-    - Si preguntan por participantes, usa la sección "PARTICIPANTES"
-    - Si preguntan por tareas, usa la sección "TAREAS PENDIENTES"
-    - Cita timestamps [MM:SS] cuando sea relevante
-    - Si no sabes algo, di que no está en la reunión
+    - Si preguntan por decisiones y no hay en el análisis, di "No se identificaron decisiones específicas en esta reunión"
+    - Si preguntan por participantes y no hay, di "No se identificaron participantes específicos"
+    - Si preguntan por tareas, usa la sección "TAREAS PENDIENTES" si existe
+    - Cita timestamps [MM:SS] cuando sea relevante y estén disponibles
+    - Si no sabes algo o no está en la información, di claramente que no está disponible
     
     ASISTENTE:
   `;
 
-  const result = await model.generateContent(prompt);
-  const response = await result.response;
-  const text = response.text();
+  try {
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    const text = response.text();
 
-  if (!text) throw new Error("No response from AI");
-  return text.trim();
+    if (!text) throw new Error("No response from AI");
+    return text.trim();
+  } catch (error: any) {
+    console.error('[Chat] Error:', error);
+    // Return a friendly error message
+    if (error.message && error.message.includes('429')) {
+      return 'Lo siento, he alcanzado el límite de preguntas por minuto. Por favor intenta de nuevo en unos segundos.';
+    }
+    throw error;
+  }
 };
