@@ -274,7 +274,7 @@ const AppContent = () => {
     setView('dashboard');
   }, [currentUser, currentOrg]);
 
-  // Polling for processing recordings
+  // Polling for processing recordings - runs continuously while any recording is processing
   useEffect(() => {
     if (!currentUser || !currentOrg) return;
 
@@ -294,9 +294,14 @@ const AppContent = () => {
         } catch (err) {
           console.error('[Polling] Error fetching updates:', err);
         }
-      }, 5000); // Poll every 5 seconds
+      }, 3000); // Poll every 3 seconds (faster response)
 
-      return () => clearInterval(intervalId);
+      return () => {
+        console.log('[Polling] Stopping poll...');
+        clearInterval(intervalId);
+      };
+    } else {
+      console.log('[Polling] No processing recordings found');
     }
   }, [recordings, currentUser, currentOrg]);
 
