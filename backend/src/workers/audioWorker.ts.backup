@@ -1,4 +1,4 @@
-import { Worker, Job } from 'bullmq';
+﻿import { Worker, Job } from 'bullmq';
 import IORedis from 'ioredis';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import dotenv from 'dotenv';
@@ -21,7 +21,7 @@ if (ffmpegPath) {
 // Health check server disabled - Worker runs in same process as API
 console.log('[Worker] Running in hybrid mode (same process as API)');
 
-// --- CONFIGURACIÓN ---
+// --- CONFIGURACI├ôN ---
 const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
 const redisOptions: any = {
     maxRetriesPerRequest: null,
@@ -69,126 +69,49 @@ async function splitAudio(filePath: string, chunkDurationSec: number = 120): Pro
 }
 
 /**
- * Extract JSON from Gemini response with robust error handling
- */
-function extractJSON(text: string): any {
-    // Strategy 1: Try to find JSON code block
-    const codeBlockMatch = text.match(/```json\s*([\s\S]*?)\s*```/);
-    if (codeBlockMatch) {
-        try {
-            return JSON.parse(codeBlockMatch[1].trim());
-        } catch (e) {
-            console.warn('[Worker] Failed to parse JSON code block');
-        }
-    }
-
-    // Strategy 2: Try to find JSON object directly
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-        try {
-            return JSON.parse(jsonMatch[0]);
-        } catch (e) {
-            console.warn('[Worker] Failed to parse JSON object');
-        }
-    }
-
-    // Strategy 3: Clean and parse entire text
-    try {
-        const cleaned = text
-            .replace(/```json\n?/g, '')
-            .replace(/```\n?/g, '')
-            .replace(/^[^{]*/, '') // Remove text before first {
-            .replace(/[^}]*$/, '') // Remove text after last }
-            .trim();
-        return JSON.parse(cleaned);
-    } catch (e) {
-        console.error('[Worker] All JSON extraction strategies failed');
-        throw new Error(`Invalid JSON response: ${text.substring(0, 100)}...`);
-    }
-}
-
-/**
- * Validate and normalize analysis structure
- */
-function validateAnalysis(data: any): any {
-    return {
-        summary: Array.isArray(data.summary) ? data.summary : [],
-        decisions: Array.isArray(data.decisions) ? data.decisions : [],
-        actionItems: Array.isArray(data.actionItems) ? data.actionItems : [],
-        participants: Array.isArray(data.participants) ? data.participants : [],
-        keyTopics: Array.isArray(data.keyTopics) ? data.keyTopics : [],
-        transcript: Array.isArray(data.transcript) ? data.transcript : []
-    };
-}
-
-/**
- * Analyze a single audio chunk with robust error handling
+ * Analyze a single audio chunk
  */
 async function analyzeChunk(chunkPath: string, index: number, total: number): Promise<any> {
-    const model = genAI.getGenerativeModel({
-        model: "gemini-1.5-flash",
-        generationConfig: {
-            responseMimeType: "application/json"
-        }
-    });
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
     const fileBuffer = fs.readFileSync(chunkPath);
     const audioBase64 = fileBuffer.toString('base64');
 
     const prompt = `
-    Analiza este SEGMENTO ${index + 1} de ${total} de una grabación de audio.
+    Analiza este SEGMENTO ${index + 1} de ${total} de una grabaci├│n de audio.
     
-    CRÍTICO: Responde SOLO con JSON válido, sin texto adicional.
-    
-    Formato requerido:
+    Extrae la siguiente informaci├│n en formato JSON:
     {
       "summary": ["Punto clave 1", "Punto clave 2"],
-      "decisions": ["Decisión tomada 1"],
-      "actionItems": ["Tarea pendiente 1 (Responsable)"],
-      "participants": ["Nombre 1"],
-      "keyTopics": ["Tema 1"],
+      "decisions": ["Decisi├│n tomada 1", "Decisi├│n tomada 2"],
+      "actionItems": ["Tarea pendiente 1 (Responsable)", "Tarea pendiente 2"],
+      "participants": ["Nombre 1", "Nombre 2"],
+      "keyTopics": ["Tema principal 1", "Tema principal 2"],
       "transcript": [
-        {"speaker": "Hablante", "text": "Texto", "timestamp": "MM:SS"}
+        {"speaker": "Hablante", "text": "Texto exacto", "timestamp": "MM:SS"}
       ]
     }
     
     IMPORTANTE:
     - Los "decisions" son acuerdos o resoluciones concretas
-    - Los "actionItems" deben incluir responsable entre paréntesis si se menciona
+    - Los "actionItems" deben incluir responsable entre par├®ntesis si se menciona
     - Los "participants" son personas mencionadas o identificables por voz
-    - Los "keyTopics": temas específicos discutidos (ej: "Presupuesto Q1", no "Finanzas")
+    - Los "keyTopics": temas espec├¡ficos discutidos (ej: "Presupuesto Q1", no "Finanzas")
     `;
 
-    try {
-        const result = await model.generateContent([
-            {
-                inlineData: {
-                    mimeType: "audio/webm",
-                    data: audioBase64
-                }
-            },
-            { text: prompt }
-        ]);
+    const result = await model.generateContent([
+        {
+            inlineData: {
+                mimeType: "audio/webm",
+                data: audioBase64
+            }
+        },
+        { text: prompt }
+    ]);
 
-        const text = result.response.text();
-        console.log(`[Worker] Gemini response for chunk ${index + 1} (first 200 chars):`, text.substring(0, 200));
-
-        const parsedData = extractJSON(text);
-        const validatedData = validateAnalysis(parsedData);
-
-        return validatedData;
-    } catch (error: any) {
-        console.error(`[Worker] Error analyzing chunk ${index + 1}:`, error.message);
-        // Return minimal valid structure instead of failing completely
-        return {
-            summary: [`Error procesando segmento ${index + 1}: ${error.message}`],
-            decisions: [],
-            actionItems: [],
-            participants: [],
-            keyTopics: [],
-            transcript: []
-        };
-    }
+    const text = result.response.text();
+    const jsonString = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    return JSON.parse(jsonString);
 }
 
 /**
@@ -232,12 +155,12 @@ function mergeAnalyses(results: any[]): any {
     // Generate intelligent title
     if (merged.keyTopics.length > 0) {
         const mainTopic = merged.keyTopics[0];
-        const category = merged.decisions.length > 0 ? "Reunión de Decisiones" :
-            merged.actionItems.length > 0 ? "Reunión de Trabajo" : "Grabación";
+        const category = merged.decisions.length > 0 ? "Reuni├│n de Decisiones" :
+            merged.actionItems.length > 0 ? "Reuni├│n de Trabajo" : "Grabaci├│n";
         merged.title = `${category}: ${mainTopic}`;
         merged.category = category;
     } else {
-        merged.title = "Grabación Procesada";
+        merged.title = "Grabaci├│n Procesada";
     }
 
     // Generate executive summary (first 3 most important points)
@@ -309,17 +232,16 @@ const worker = new Worker('audio-processing-queue', async (job: Job) => {
                         results.push(result);
                         success = true;
 
-                        // Rate limiting delay between successful chunks (5 seconds)
+                        // Rate limiting delay between successful chunks (10 seconds)
                         if (i < chunks.length - 1) {
-                            console.log('[Worker] Waiting 5s to respect rate limits...');
-                            await new Promise(resolve => setTimeout(resolve, 5000));
+                            console.log('[Worker] Waiting 10s to respect rate limits...');
+                            await new Promise(resolve => setTimeout(resolve, 10000));
                         }
 
                     } catch (err: any) {
                         if (err.message && err.message.includes('429') && retries < maxRetries) {
                             retries++;
-                            // Increased delay: 30s, 60s, 90s to handle aggressive quotas
-                            const delay = retries * 30000;
+                            const delay = Math.pow(2, retries) * 5000 + Math.random() * 1000;
                             console.warn(`[Worker] 429 Too Many Requests. Retrying chunk ${i + 1} in ${Math.round(delay / 1000)}s (Attempt ${retries}/${maxRetries})`);
                             await new Promise(resolve => setTimeout(resolve, delay));
                         } else {
@@ -374,15 +296,17 @@ const worker = new Worker('audio-processing-queue', async (job: Job) => {
                 error: error.message
             } as any);
 
-            await prisma.recording.update({
-                where: { id: recordingId },
-                data: { status: 'ERROR' }
-            });
-
-            // Cleanup temp files even on error
-            if (fs.existsSync(sourceFilePath)) {
-                try { fs.unlinkSync(sourceFilePath); } catch { }
+            try {
+                await prisma.recording.update({
+                    where: { id: recordingId },
+                    data: { status: 'ERROR' }
+                });
+            } catch (dbErr) {
+                console.error(`[Worker] Failed to update DB status:`, dbErr);
             }
+
+            // Cleanup
+            if (fs.existsSync(sourceFilePath)) fs.unlinkSync(sourceFilePath);
             chunks.forEach(c => {
                 if (fs.existsSync(c)) {
                     try { fs.unlinkSync(c); } catch { }
@@ -402,5 +326,3 @@ console.log('[Worker] Audio Processing Worker Started (Chunking Enabled)...');
 // Event listeners
 worker.on('ready', () => console.log('[Worker] Ready'));
 worker.on('failed', (job, err) => console.error(`[Worker] Job ${job?.id} failed:`, err.message));
-
-export default worker;

@@ -81,7 +81,7 @@ const analyzeChunk = async (
   markersCount: number
 ): Promise<AIAnalysis> => {
   const model = genAI.getGenerativeModel({
-    model: "gemini-2.0-flash-exp"
+    model: "gemini-1.5-flash"
   });
 
   const prompt = `
@@ -201,7 +201,7 @@ export const chatWithMeeting = async (
   userMessage: string
 ): Promise<string> => {
   const model = genAI.getGenerativeModel({
-    model: "gemini-2.5-flash"
+    model: "gemini-1.5-flash"
   });
 
   // Construct enhanced context from analysis (with backwards compatibility)
