@@ -126,7 +126,7 @@ function validateAnalysis(data: any): any {
  */
 async function analyzeChunk(chunkPath: string, index: number, total: number): Promise<any> {
     const model = genAI.getGenerativeModel({
-        model: "gemini-1.5-flash", // Stable model with better free tier quotas
+        model: "gemini-1.5-flash-001", // Specific version to avoid 404
         generationConfig: {
             responseMimeType: "application/json" // Force JSON response
         }
