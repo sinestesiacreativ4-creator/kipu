@@ -69,10 +69,68 @@ async function splitAudio(filePath: string, chunkDurationSec: number = 120): Pro
 }
 
 /**
- * Analyze a single audio chunk
+ * Extract JSON from Gemini response with robust error handling
+ */
+function extractJSON(text: string): any {
+    // Strategy 1: Try to find JSON code block
+    const codeBlockMatch = text.match(/```json\s*([\s\S]*?)\s*```/);
+    if (codeBlockMatch) {
+        try {
+            return JSON.parse(codeBlockMatch[1].trim());
+        } catch (e) {
+            console.warn('[Worker] Failed to parse JSON code block');
+        }
+    }
+
+    // Strategy 2: Try to find JSON object directly
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+        try {
+            return JSON.parse(jsonMatch[0]);
+        } catch (e) {
+            console.warn('[Worker] Failed to parse JSON object');
+        }
+    }
+
+    // Strategy 3: Clean and parse entire text
+    try {
+        const cleaned = text
+            .replace(/```json\n?/g, '')
+            .replace(/```\n?/g, '')
+            .replace(/^[^{]*/, '') // Remove text before first {
+            .replace(/[^}]*$/, '') // Remove text after last }
+            .trim();
+        return JSON.parse(cleaned);
+    } catch (e) {
+        console.error('[Worker] All JSON extraction strategies failed');
+        throw new Error(`Invalid JSON response: ${text.substring(0, 100)}...`);
+    }
+}
+
+/**
+ * Validate and normalize analysis structure
+ */
+function validateAnalysis(data: any): any {
+    return {
+        summary: Array.isArray(data.summary) ? data.summary : [],
+        decisions: Array.isArray(data.decisions) ? data.decisions : [],
+        actionItems: Array.isArray(data.actionItems) ? data.actionItems : [],
+        participants: Array.isArray(data.participants) ? data.participants : [],
+        keyTopics: Array.isArray(data.keyTopics) ? data.keyTopics : [],
+        transcript: Array.isArray(data.transcript) ? data.transcript : []
+    };
+}
+
+/**
+ * Analyze a single audio chunk with robust error handling
  */
 async function analyzeChunk(chunkPath: string, index: number, total: number): Promise<any> {
-    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+    const model = genAI.getGenerativeModel({
+        model: "gemini-2.0-flash-exp",
+        generationConfig: {
+            responseMimeType: "application/json" // Force JSON response
+        }
+    });
 
     const fileBuffer = fs.readFileSync(chunkPath);
     const audioBase64 = fileBuffer.toString('base64');
@@ -80,15 +138,17 @@ async function analyzeChunk(chunkPath: string, index: number, total: number): Pr
     const prompt = `
     Analiza este SEGMENTO ${index + 1} de ${total} de una grabación de audio.
     
-    Extrae la siguiente información en formato JSON:
+    CRÍTICO: Responde SOLO con JSON válido, sin texto adicional.
+    
+    Formato requerido:
     {
       "summary": ["Punto clave 1", "Punto clave 2"],
-      "decisions": ["Decisión tomada 1", "Decisión tomada 2"],
-      "actionItems": ["Tarea pendiente 1 (Responsable)", "Tarea pendiente 2"],
-      "participants": ["Nombre 1", "Nombre 2"],
-      "keyTopics": ["Tema principal 1", "Tema principal 2"],
+      "decisions": ["Decisión tomada 1"],
+      "actionItems": ["Tarea pendiente 1 (Responsable)"],
+      "participants": ["Nombre 1"],
+      "keyTopics": ["Tema 1"],
       "transcript": [
-        {"speaker": "Hablante", "text": "Texto exacto", "timestamp": "MM:SS"}
+        {"speaker": "Hablante", "text": "Texto", "timestamp": "MM:SS"}
       ]
     }
     
@@ -99,19 +159,36 @@ async function analyzeChunk(chunkPath: string, index: number, total: number): Pr
     - Los "keyTopics": temas específicos discutidos (ej: "Presupuesto Q1", no "Finanzas")
     `;
 
-    const result = await model.generateContent([
-        {
-            inlineData: {
-                mimeType: "audio/webm",
-                data: audioBase64
-            }
-        },
-        { text: prompt }
-    ]);
+    try {
+        const result = await model.generateContent([
+            {
+                inlineData: {
+                    mimeType: "audio/webm",
+                    data: audioBase64
+                }
+            },
+            { text: prompt }
+        ]);
 
-    const text = result.response.text();
-    const jsonString = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-    return JSON.parse(jsonString);
+        const text = result.response.text();
+        console.log(`[Worker] Gemini response for chunk ${index + 1} (first 200 chars):`, text.substring(0, 200));
+
+        const parsedData = extractJSON(text);
+        const validatedData = validateAnalysis(parsedData);
+
+        return validatedData;
+    } catch (error: any) {
+        console.error(`[Worker] Error analyzing chunk ${index + 1}:`, error.message);
+        // Return minimal valid structure instead of failing completely
+        return {
+            summary: [`Error procesando segmento ${index + 1}: ${error.message}`],
+            decisions: [],
+            actionItems: [],
+            participants: [],
+            keyTopics: [],
+            transcript: []
+        };
+    }
 }
 
 /**
@@ -232,10 +309,10 @@ const worker = new Worker('audio-processing-queue', async (job: Job) => {
                         results.push(result);
                         success = true;
 
-                        // Rate limiting delay between successful chunks (10 seconds)
+                        // Rate limiting delay between successful chunks (5 seconds)
                         if (i < chunks.length - 1) {
-                            console.log('[Worker] Waiting 10s to respect rate limits...');
-                            await new Promise(resolve => setTimeout(resolve, 10000));
+                            console.log('[Worker] Waiting 5s to respect rate limits...');
+                            await new Promise(resolve => setTimeout(resolve, 5000));
                         }
 
                     } catch (err: any) {
