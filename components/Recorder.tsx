@@ -9,6 +9,8 @@ interface RecorderProps {
   onCancel: () => void;
 }
 
+import { useWakeLock } from '../hooks/useWakeLock';
+
 const Recorder: React.FC<RecorderProps> = ({ onComplete, onCancel }) => {
   const [status, setStatus] = useState<RecordingStatus>(RecordingStatus.IDLE);
   const [duration, setDuration] = useState(0);
@@ -23,6 +25,8 @@ const Recorder: React.FC<RecorderProps> = ({ onComplete, onCancel }) => {
   const segmentTimerRef = useRef<number | null>(null);
   const SEGMENT_DURATION_MS = 10 * 60 * 1000; // 10 minutes
 
+  const { requestLock, releaseLock } = useWakeLock();
+
   const startNewSegment = () => {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
       console.log("Starting new segment...");
@@ -33,6 +37,9 @@ const Recorder: React.FC<RecorderProps> = ({ onComplete, onCancel }) => {
 
   const startRecording = async () => {
     try {
+      // Request Wake Lock immediately
+      await requestLock();
+
       const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
       setStream(audioStream);
 
@@ -93,6 +100,7 @@ const Recorder: React.FC<RecorderProps> = ({ onComplete, onCancel }) => {
     } catch (error: any) {
       console.error("Error accessing microphone:", error);
       alert(`Error al acceder al micrófono: ${error.message}.`);
+      releaseLock(); // Release if start fails
     }
   };
 

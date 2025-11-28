@@ -12,6 +12,7 @@ import { blobToBase64, formatTime, generateId } from './utils';
 import { analyzeAudio } from './services/geminiService';
 import { api } from './services/api';
 import { uploadService } from './services/uploadService';
+import { useWakeLock } from './hooks/useWakeLock';
 
 // --- Components defined inline for simplicity of the file structure ---
 
@@ -198,6 +199,8 @@ const AppContent = () => {
   const [uploadStatus, setUploadStatus] = useState<'uploading' | 'success' | 'error' | null>(null);
   const [processingProgress, setProcessingProgress] = useState<{ current: number, total: number } | null>(null);
 
+  const { requestLock, releaseLock } = useWakeLock();
+
   const [view, setView] = useState<'dashboard' | 'recorder' | 'detail'>('dashboard');
   const [recordings, setRecordings] = useState<Recording[]>([]);
   const [selectedRecordingId, setSelectedRecordingId] = useState<string | null>(null);
@@ -291,7 +294,7 @@ const AppContent = () => {
           // Merge backend state with local optimistic state
           setRecordings(prev => {
             const backendMap = new Map(updatedRecordings.map((r: Recording) => [r.id, r]));
-            
+
             // Keep local recordings that are PROCESSING but not yet in backend (optimistic)
             const mergedList = prev.map(localRec => {
               if (backendMap.has(localRec.id)) {
@@ -308,7 +311,7 @@ const AppContent = () => {
 
             // Add remaining new recordings from backend
             mergedList.push(...Array.from(backendMap.values()));
-            
+
             // Sort by createdAt desc
             return mergedList.sort((a, b) => b.createdAt - a.createdAt);
           });
@@ -400,6 +403,9 @@ const AppContent = () => {
 
   const handleRecordingComplete = async (blob: Blob, duration: number, markers: Marker[]) => {
     if (!currentUser) return;
+
+    // Request Wake Lock for upload process
+    await requestLock();
 
     const id = generateId();
     console.log('[App] Recording complete. Duration:', duration, 'seconds, Size:', blob.size, 'bytes');
@@ -503,6 +509,10 @@ const AppContent = () => {
         }
       };
       setRecordings(prev => prev.map(rec => rec.id === id ? offlineRecording : rec));
+    } finally {
+      // Release Wake Lock after upload attempt (success or fail)
+      // Note: We release it here because the polling happens in background and doesn't require screen on
+      releaseLock();
     }
   };
 
@@ -577,6 +587,9 @@ const AppContent = () => {
       return;
     }
 
+    // Request Wake Lock for upload process
+    await requestLock();
+
     console.log('[Upload] Starting upload for file:', file.name, 'Size:', file.size, 'Type:', file.type);
 
     const id = generateId();
@@ -617,6 +630,8 @@ const AppContent = () => {
       setTimeout(() => setUploadStatus(null), 3000);
     } finally {
       setProcessingProgress(null);
+      // Release Wake Lock after upload attempt
+      releaseLock();
     }
   };
 
