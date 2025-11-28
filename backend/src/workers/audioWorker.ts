@@ -119,6 +119,19 @@ function validateAnalysis(data: any): any {
         keyTopics: Array.isArray(data.keyTopics) ? data.keyTopics : [],
         transcript: Array.isArray(data.transcript) ? data.transcript : []
     };
+}
+
+/**
+ * Analyze a single audio chunk with robust error handling
+ */
+async function analyzeChunk(chunkPath: string, index: number, total: number): Promise<any> {
+    const model = genAI.getGenerativeModel({
+        model: "gemini-1.5-flash", // Stable model with better free tier quotas
+        generationConfig: {
+            responseMimeType: "application/json" // Force JSON response
+        }
+    });
+
     const fileBuffer = fs.readFileSync(chunkPath);
     const audioBase64 = fileBuffer.toString('base64');
 
@@ -360,17 +373,15 @@ const worker = new Worker('audio-processing-queue', async (job: Job) => {
                 error: error.message
             } as any);
 
-            try {
-                await prisma.recording.update({
-                    where: { id: recordingId },
-                    data: { status: 'ERROR' }
-                });
-            } catch (dbErr) {
-                console.error(`[Worker] Failed to update DB status:`, dbErr);
-            }
+            await prisma.recording.update({
+                where: { id: recordingId },
+                data: { status: 'ERROR' }
+            });
 
-            // Cleanup
-            if (fs.existsSync(sourceFilePath)) fs.unlinkSync(sourceFilePath);
+            // Cleanup temp files even on error
+            if (fs.existsSync(sourceFilePath)) {
+                try { fs.unlinkSync(sourceFilePath); } catch { }
+            }
             chunks.forEach(c => {
                 if (fs.existsSync(c)) {
                     try { fs.unlinkSync(c); } catch { }
@@ -390,3 +401,5 @@ console.log('[Worker] Audio Processing Worker Started (Chunking Enabled)...');
 // Event listeners
 worker.on('ready', () => console.log('[Worker] Ready'));
 worker.on('failed', (job, err) => console.error(`[Worker] Job ${job?.id} failed:`, err.message));
+
+export default worker;
