@@ -119,19 +119,6 @@ function validateAnalysis(data: any): any {
         keyTopics: Array.isArray(data.keyTopics) ? data.keyTopics : [],
         transcript: Array.isArray(data.transcript) ? data.transcript : []
     };
-}
-
-/**
- * Analyze a single audio chunk with robust error handling
- */
-async function analyzeChunk(chunkPath: string, index: number, total: number): Promise<any> {
-    const model = genAI.getGenerativeModel({
-        model: "gemini-2.0-flash-exp",
-        generationConfig: {
-            responseMimeType: "application/json" // Force JSON response
-        }
-    });
-
     const fileBuffer = fs.readFileSync(chunkPath);
     const audioBase64 = fileBuffer.toString('base64');
 
