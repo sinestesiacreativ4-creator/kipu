@@ -67,38 +67,109 @@ export const UploadController = {
 
             console.log(`[Producer] Received file for recording ${recordingId} (${fileSize} bytes)`);
             console.log(`[Producer] Strategy: ${useRedis ? 'Redis (fast)' : 'Gemini File API (large)'}`);
-        });
 
-        console.log(`[Producer] Job ${job.id} enqueued for recording ${recordingId}`);
+            let storageKey: string;
 
-        // Initialize status in Redis (for polling)
-        await redis.hset(`status:${recordingId}`, {
-            status: 'QUEUED',
-            progress: '0',
-            jobId: job.id
-        });
-        await redis.expire(`status:${recordingId}`, 86400); // 24 hours TTL
+            if (useRedis) {
+                // === REDIS PATH (Fast for small files) ===
+                const fileKey = `file:${recordingId}`;
 
-        // Respond immediately with 202 Accepted
-        res.status(202).json({
-            success: true,
-            message: 'File uploaded and queued for processing',
-            recordingId,
-            jobId: job.id,
-            status: 'QUEUED'
-        });
+                // Read from disk and save to Redis
+                const fileBuffer = fs.readFileSync(filePath);
+                await redis.set(fileKey, fileBuffer);
+                await redis.expire(fileKey, 86400); // 24 hours TTL
 
-    } catch(error: any) {
-        console.error('[Producer] Error in uploadToRedis:', error);
+                console.log(`[Producer] File stored in Redis: ${fileKey}`);
+                storageKey = fileKey;
 
-        // Cleanup on error
-        if (filePath && fs.existsSync(filePath)) {
-            try { fs.unlinkSync(filePath); } catch { }
+                // Cleanup temp file immediately for Redis path
+                try {
+                    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+                } catch (cleanupErr) {
+                    console.error('[Producer] Warning: Failed to cleanup temp file:', cleanupErr);
+                }
+            } else {
+                // === GEMINI FILE API PATH (For large files) ===
+                // Upload directly from the temp file on disk
+                const uploadResult = await fileManager.uploadFile(filePath, {
+                    mimeType: req.file.mimetype,
+                    displayName: req.file.originalname
+                });
+
+                storageKey = uploadResult.file.uri;
+                console.log(`[Producer] File uploaded to Gemini: ${storageKey}`);
+
+                // DO NOT delete temp file here! Pass to worker.
+            }
+
+            // Create recording in DB with PROCESSING status
+            await prisma.recording.create({
+                data: {
+                    id: recordingId,
+                    userId,
+                    organizationId,
+                    duration: 0,
+                    status: 'PROCESSING',
+                    audioKey: storageKey,
+                    analysis: {
+                        title: 'Esperando en cola...',
+                        category: 'Procesando',
+                        summary: ['Tu grabación está en la cola de procesamiento'],
+                        actionItems: [],
+                        transcript: [],
+                        tags: []
+                    }
+                }
+            });
+
+            // Enqueue job for background processing
+            const job = await audioQueue.add('process-audio', {
+                [useRedis ? 'fileKey' : 'fileUri']: storageKey,
+                filePath: useRedis ? null : filePath, // Pass local path for large files
+                recordingId,
+                userId,
+                organizationId,
+                mimeType: req.file.mimetype,
+                useRedis
+            }, {
+                attempts: 3,
+                removeOnComplete: true,
+                backoff: {
+                    type: 'exponential',
+                    delay: 5000
+                }
+            });
+
+            console.log(`[Producer] Job ${job.id} enqueued for recording ${recordingId}`);
+
+            // Initialize status in Redis (for polling)
+            await redis.hset(`status:${recordingId}`, {
+                status: 'QUEUED',
+                progress: '0',
+                jobId: job.id
+            });
+            await redis.expire(`status:${recordingId}`, 86400); // 24 hours TTL
+
+            // Respond immediately with 202 Accepted
+            res.status(202).json({
+                success: true,
+                message: 'File uploaded and queued for processing',
+                recordingId,
+                jobId: job.id,
+                status: 'QUEUED'
+            });
+
+        } catch (error: any) {
+            console.error('[Producer] Error in uploadToRedis:', error);
+
+            // Cleanup on error
+            if (filePath && fs.existsSync(filePath)) {
+                try { fs.unlinkSync(filePath); } catch { }
+            }
+
+            res.status(500).json({ error: error.message });
         }
-
-        res.status(500).json({ error: error.message });
-    }
-},
+    },
 
     /**
      * Polling endpoint: Get processing status
