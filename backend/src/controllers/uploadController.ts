@@ -25,9 +25,15 @@ if (redisUrl.startsWith('rediss://')) {
 
 const redis = new IORedis(redisUrl, redisOptions);
 
-// Configure Multer
+// Configure Multer with Disk Storage (Prevents RAM overflow)
 const upload = multer({
-    storage: multer.memoryStorage(),
+    storage: multer.diskStorage({
+        destination: os.tmpdir(),
+        filename: (req, file, cb) => {
+            const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+            cb(null, file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname));
+        }
+    }),
     limits: {
         fileSize: 524288000, // 500 MB limit
     }
@@ -36,7 +42,7 @@ const upload = multer({
 // Initialize Gemini File Manager
 const fileManager = new GoogleAIFileManager(process.env.GEMINI_API_KEY!);
 
-// Redis size limit (30 MB)
+// Redis size limit (30 MB) - Files larger than this go to Gemini
 const REDIS_SIZE_LIMIT = 30 * 1024 * 1024;
 
 export const UploadController = {
@@ -47,10 +53,11 @@ export const UploadController = {
      * Returns 202 Accepted immediately
      */
     async uploadToRedis(req: Request, res: Response) {
-        let tempFilePath: string | null = null;
+        // We track the file path to ensure cleanup happens
+        const filePath = req.file?.path;
 
         try {
-            if (!req.file) {
+            if (!req.file || !filePath) {
                 return res.status(400).json({ error: 'No file uploaded' });
             }
 
@@ -66,19 +73,25 @@ export const UploadController = {
             if (useRedis) {
                 // === REDIS PATH (Fast for small files) ===
                 const fileKey = `file:${recordingId}`;
-                await redis.set(fileKey, req.file.buffer);
-                await redis.expire(fileKey, 3600); // 1 hour TTL
+
+                // Read from disk and save to Redis
+                const fileBuffer = fs.readFileSync(filePath);
+                await redis.set(fileKey, fileBuffer);
+                await redis.expire(fileKey, 86400); // 24 hours TTL
+
                 console.log(`[Producer] File stored in Redis: ${fileKey}`);
                 storageKey = fileKey;
+
+                // Cleanup temp file immediately for Redis path
+                try {
+                    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+                } catch (cleanupErr) {
+                    console.error('[Producer] Warning: Failed to cleanup temp file:', cleanupErr);
+                }
             } else {
                 // === GEMINI FILE API PATH (For large files) ===
-                const tempDir = os.tmpdir();
-                const ext = path.extname(req.file.originalname) || '.webm';
-                tempFilePath = path.join(tempDir, `${recordingId}${ext}`);
-
-                fs.writeFileSync(tempFilePath, req.file.buffer);
-
-                const uploadResult = await fileManager.uploadFile(tempFilePath, {
+                // Upload directly from the temp file on disk
+                const uploadResult = await fileManager.uploadFile(filePath, {
                     mimeType: req.file.mimetype,
                     displayName: req.file.originalname
                 });
@@ -86,9 +99,7 @@ export const UploadController = {
                 storageKey = uploadResult.file.uri;
                 console.log(`[Producer] File uploaded to Gemini: ${storageKey}`);
 
-                // Cleanup temp file
-                fs.unlinkSync(tempFilePath);
-                tempFilePath = null;
+                // DO NOT delete temp file here! Pass to worker.
             }
 
             // Create recording in DB with PROCESSING status
@@ -102,24 +113,13 @@ export const UploadController = {
                     audioKey: storageKey,
                     analysis: {
                         title: 'Esperando en cola...',
-                        category: 'Procesando',
-                        summary: ['Tu grabación está en la cola de procesamiento'],
-                        actionItems: [],
-                        transcript: [],
-                        tags: []
-                    }
-                }
-            });
-
-            // Enqueue job for background processing
-            const job = await audioQueue.add('process-audio', {
-                [useRedis ? 'fileKey' : 'fileUri']: storageKey,
-                recordingId,
-                userId,
-                organizationId,
-                mimeType: req.file.mimetype,
-                useRedis
-            }, {
+                        filePath: useRedis ? null : filePath, // Pass local path for large files
+                        recordingId,
+                        userId,
+                        organizationId,
+                        mimeType: req.file.mimetype,
+                        useRedis
+                    }, {
                 attempts: 3,
                 removeOnComplete: true,
                 backoff: {
@@ -136,7 +136,7 @@ export const UploadController = {
                 progress: '0',
                 jobId: job.id
             });
-            await redis.expire(`status:${recordingId}`, 86400);
+            await redis.expire(`status:${recordingId}`, 86400); // 24 hours TTL
 
             // Respond immediately with 202 Accepted
             res.status(202).json({
@@ -150,8 +150,9 @@ export const UploadController = {
         } catch (error: any) {
             console.error('[Producer] Error in uploadToRedis:', error);
 
-            if (tempFilePath && fs.existsSync(tempFilePath)) {
-                fs.unlinkSync(tempFilePath);
+            // Cleanup on error
+            if (filePath && fs.existsSync(filePath)) {
+                try { fs.unlinkSync(filePath); } catch { }
             }
 
             res.status(500).json({ error: error.message });

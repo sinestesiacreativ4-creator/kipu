@@ -174,12 +174,15 @@ function mergeAnalyses(results: any[]): any {
 const PROCESSING_TIMEOUT = 15 * 60 * 1000; // 15 minutes max
 
 const worker = new Worker('audio-processing-queue', async (job: Job) => {
-    const { recordingId, fileKey, fileUri, mimeType, useRedis } = job.data;
+    const { recordingId, fileKey, fileUri, mimeType, useRedis, filePath } = job.data;
     console.log(`[Worker] Processing job ${job.id} for recording ${recordingId}`);
 
     const tempDir = os.tmpdir();
     const ext = mimeType?.includes('mp4') ? '.mp4' : '.webm';
-    const tempFilePath = path.join(tempDir, `${recordingId}${ext}`);
+    // Default temp path if we need to write from Redis
+    const defaultTempPath = path.join(tempDir, `${recordingId}${ext}`);
+    let sourceFilePath = defaultTempPath;
+
     let chunks: string[] = [];
 
     // Wrap entire process in a timeout
@@ -193,19 +196,22 @@ const worker = new Worker('audio-processing-queue', async (job: Job) => {
             await connection.hset(`status:${recordingId}`, 'status', 'PROCESSING');
 
             // 1. Retrieve File to Temp
-            if (useRedis) {
+            if (filePath && fs.existsSync(filePath)) {
+                console.log(`[Worker] Using local file directly: ${filePath}`);
+                sourceFilePath = filePath;
+            } else if (useRedis) {
                 console.log(`[Worker] Fetching from Redis...`);
                 const fileBuffer = await connection.getBuffer(fileKey);
                 if (!fileBuffer) throw new Error('File not found in Redis');
-                fs.writeFileSync(tempFilePath, fileBuffer);
+                fs.writeFileSync(sourceFilePath, fileBuffer);
             } else {
                 console.log(`[Worker] Downloading from Gemini URI not supported for chunking yet.`);
                 throw new Error("Chunking requires file access. Gemini File API storage does not support direct download for chunking.");
             }
 
             // 2. Split Audio
-            console.log(`[Worker] Splitting audio file: ${tempFilePath}`);
-            chunks = await splitAudio(tempFilePath);
+            console.log(`[Worker] Splitting audio file: ${sourceFilePath}`);
+            chunks = await splitAudio(sourceFilePath);
             console.log(`[Worker] Created ${chunks.length} chunks`);
 
             // 3. Process Chunks
@@ -269,7 +275,7 @@ const worker = new Worker('audio-processing-queue', async (job: Job) => {
             });
 
             // Cleanup temp files
-            if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
+            if (fs.existsSync(sourceFilePath)) fs.unlinkSync(sourceFilePath);
             chunks.forEach(c => {
                 if (fs.existsSync(c)) fs.unlinkSync(c);
             });
@@ -300,7 +306,7 @@ const worker = new Worker('audio-processing-queue', async (job: Job) => {
             }
 
             // Cleanup
-            if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
+            if (fs.existsSync(sourceFilePath)) fs.unlinkSync(sourceFilePath);
             chunks.forEach(c => {
                 if (fs.existsSync(c)) {
                     try { fs.unlinkSync(c); } catch { }
