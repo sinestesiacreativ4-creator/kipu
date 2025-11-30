@@ -286,6 +286,19 @@ const Recorder: React.FC<RecorderProps> = ({ onComplete, onCancel }) => {
             <span>30:00</span>
           </div>
         </div>
+
+        {/* Long Recording Warning */}
+        {duration > 3600 && (
+          <div className="mt-4 p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg flex items-start gap-3 animate-fade-in">
+            <div className="text-yellow-600 dark:text-yellow-500 mt-0.5">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" /><path d="M12 9v4" /><path d="M12 17h.01" /></svg>
+            </div>
+            <div className="text-xs text-yellow-700 dark:text-yellow-400">
+              <p className="font-semibold">Grabación extensa detectada</p>
+              <p>El procesamiento de grabaciones de más de 1 hora puede tomar varios minutos. Por favor mantén la aplicación abierta al finalizar.</p>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Waveform Visualization */}

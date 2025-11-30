@@ -248,7 +248,7 @@ function mergeAnalyses(results: any[]): any {
 }
 
 // --- WORKER ---
-const PROCESSING_TIMEOUT = 15 * 60 * 1000; // 15 minutes max
+const PROCESSING_TIMEOUT = 120 * 60 * 1000; // 120 minutes max
 
 const worker = new Worker('audio-processing-queue', async (job: Job) => {
     const { recordingId, fileKey, fileUri, mimeType, useRedis, filePath } = job.data;
@@ -291,43 +291,61 @@ const worker = new Worker('audio-processing-queue', async (job: Job) => {
             chunks = await splitAudio(sourceFilePath);
             console.log(`[Worker] Created ${chunks.length} chunks`);
 
-            // 3. Process Chunks
-            const results = [];
-            for (let i = 0; i < chunks.length; i++) {
-                console.log(`[Worker] Processing chunk ${i + 1}/${chunks.length}`);
+            // 3. Process Chunks in Parallel Batches
+            const results: any[] = [];
+            const BATCH_SIZE = 3; // Process 3 chunks at a time
+
+            for (let i = 0; i < chunks.length; i += BATCH_SIZE) {
+                const batch = chunks.slice(i, i + BATCH_SIZE);
+                console.log(`[Worker] Processing batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(chunks.length / BATCH_SIZE)} (Chunks ${i + 1}-${i + batch.length})`);
+
+                // Process batch in parallel
+                const batchPromises = batch.map((chunkPath, batchIndex) => {
+                    const globalIndex = i + batchIndex;
+                    return (async () => {
+                        let retries = 0;
+                        const maxRetries = 3;
+                        let success = false;
+                        let result = null;
+
+                        while (!success && retries <= maxRetries) {
+                            try {
+                                // Add small staggering delay to avoid hitting API exactly at same ms
+                                await new Promise(resolve => setTimeout(resolve, batchIndex * 1000));
+
+                                result = await analyzeChunk(chunkPath, globalIndex, chunks.length);
+                                success = true;
+                            } catch (err: any) {
+                                if (err.message && err.message.includes('429') && retries < maxRetries) {
+                                    retries++;
+                                    const delay = retries * 30000 + (Math.random() * 5000); // Add jitter
+                                    console.warn(`[Worker] 429 Too Many Requests. Retrying chunk ${globalIndex + 1} in ${Math.round(delay / 1000)}s (Attempt ${retries}/${maxRetries})`);
+                                    await new Promise(resolve => setTimeout(resolve, delay));
+                                } else {
+                                    console.error(`[Worker] Error processing chunk ${globalIndex + 1}:`, err.message);
+                                    break;
+                                }
+                            }
+                        }
+                        return result;
+                    })();
+                });
+
+                const batchResults = await Promise.all(batchPromises);
+
+                // Filter out nulls (failed chunks) and add to results
+                batchResults.forEach(res => {
+                    if (res) results.push(res);
+                });
+
                 // Update progress
-                await connection.hset(`status:${recordingId}`, 'progress', Math.round(((i) / chunks.length) * 100).toString());
+                const progress = Math.round(((i + batch.length) / chunks.length) * 100);
+                await connection.hset(`status:${recordingId}`, 'progress', progress.toString());
 
-                // Retry logic for 429 errors
-                let retries = 0;
-                const maxRetries = 3;
-                let success = false;
-
-                while (!success && retries <= maxRetries) {
-                    try {
-                        const result = await analyzeChunk(chunks[i], i, chunks.length);
-                        results.push(result);
-                        success = true;
-
-                        // Rate limiting delay between successful chunks (5 seconds)
-                        if (i < chunks.length - 1) {
-                            console.log('[Worker] Waiting 5s to respect rate limits...');
-                            await new Promise(resolve => setTimeout(resolve, 5000));
-                        }
-
-                    } catch (err: any) {
-                        if (err.message && err.message.includes('429') && retries < maxRetries) {
-                            retries++;
-                            // Increased delay: 30s, 60s, 90s to handle aggressive quotas
-                            const delay = retries * 30000;
-                            console.warn(`[Worker] 429 Too Many Requests. Retrying chunk ${i + 1} in ${Math.round(delay / 1000)}s (Attempt ${retries}/${maxRetries})`);
-                            await new Promise(resolve => setTimeout(resolve, delay));
-                        } else {
-                            console.error(`[Worker] Error processing chunk ${i + 1}:`, err.message);
-                            // Continue with other chunks to salvage partial results
-                            break;
-                        }
-                    }
+                // Rate limiting delay between batches
+                if (i + BATCH_SIZE < chunks.length) {
+                    console.log('[Worker] Waiting 5s between batches to respect rate limits...');
+                    await new Promise(resolve => setTimeout(resolve, 5000));
                 }
             }
 
