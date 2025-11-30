@@ -255,7 +255,14 @@ const worker = new Worker('audio-processing-queue', async (job: Job) => {
     console.log(`[Worker] Processing job ${job.id} for recording ${recordingId}`);
 
     const tempDir = os.tmpdir();
-    const ext = mimeType?.includes('mp4') ? '.mp4' : '.webm';
+    let ext = '.webm'; // Default
+    if (mimeType) {
+        if (mimeType.includes('mp4') || mimeType.includes('m4a')) ext = '.mp4';
+        else if (mimeType.includes('mpeg') || mimeType.includes('mp3')) ext = '.mp3';
+        else if (mimeType.includes('wav')) ext = '.wav';
+        else if (mimeType.includes('ogg')) ext = '.ogg';
+        else if (mimeType.includes('aac')) ext = '.aac';
+    }
     // Default temp path if we need to write from Redis
     const defaultTempPath = path.join(tempDir, `${recordingId}${ext}`);
     let sourceFilePath = defaultTempPath;
