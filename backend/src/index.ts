@@ -3,6 +3,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import { UploadController } from './controllers/uploadController';
 import { DataController } from './controllers/dataController';
+import { RobustUploadController } from './controllers/robustUploadController'; // New Controller
 import prisma from './services/prisma';
 import { initTempFolders } from './config/upload.config';
 import { startAutoCleanup } from './services/tempManager';
@@ -55,7 +56,6 @@ app.get('/api/auth/me', AuthController.getCurrentUser);
 app.post('/api/auth/logout', AuthController.logout);
 
 // 1. Subida directa a Redis (Multipart)
-// Uses updated UploadController with robust error handling
 app.post('/api/upload-redis', UploadController.uploadMiddleware, UploadController.uploadToRedis);
 
 // 2. Consultar estado en Redis
@@ -70,14 +70,21 @@ app.delete('/api/profiles/:id', DataController.deleteProfile);
 app.get('/api/recordings/:userId/:orgId', DataController.getRecordings);
 app.delete('/api/recordings/:id', DataController.deleteRecording);
 
-// 4. Streaming Chunk Upload
+// 4. Streaming Chunk Upload (Legacy - keeping for compatibility if needed, or replace)
 import chunkController from './controllers/chunkController';
 app.use('/api', chunkController);
 
-// 5. Health Check
+// ==========================================
+// 5. NEW ROBUST CHUNK UPLOAD ENDPOINTS
+// ==========================================
+app.post('/upload/chunk', RobustUploadController.uploadMiddleware, RobustUploadController.uploadChunk);
+app.post('/upload/merge', RobustUploadController.mergeChunks);
+
+
+// 6. Health Check
 app.get('/health', (req, res) => res.send('Audio Processing Service OK'));
 
-// 6. Init Demo Data (Temporary)
+// 7. Init Demo Data (Temporary)
 app.get('/api/init-demo-data', async (req, res) => {
     try {
         const existing = await prisma.organization.findUnique({ where: { slug: 'demo' } });
