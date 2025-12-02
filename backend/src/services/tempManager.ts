@@ -172,35 +172,34 @@ export class TempManager {
 
         return diagnostics;
     }
-}
+    /**
+     * Auto-cleanup job
+     * Runs every hour to clean old temp files
+     */
+    private static cleanupInterval: NodeJS.Timeout | null = null;
 
-/**
- * Auto-cleanup job
- * Runs every hour to clean old temp files
- */
-let cleanupInterval: NodeJS.Timeout | null = null;
+    static startAutoCleanup(intervalHours: number = 1): void {
+        if (TempManager.cleanupInterval) {
+            console.log('[TempManager] Auto-cleanup already running');
+            return;
+        }
 
-export function startAutoCleanup(intervalHours: number = 1): void {
-    if (cleanupInterval) {
-        console.log('[TempManager] Auto-cleanup already running');
-        return;
+        console.log(`[TempManager] Starting auto-cleanup (every ${intervalHours}h)`);
+
+        // Run immediately
+        TempManager.cleanupOldFiles();
+
+        // Then schedule
+        TempManager.cleanupInterval = setInterval(() => {
+            TempManager.cleanupOldFiles();
+        }, intervalHours * 60 * 60 * 1000);
     }
 
-    console.log(`[TempManager] Starting auto-cleanup (every ${intervalHours}h)`);
-
-    // Run immediately
-    TempManager.cleanupOldFiles();
-
-    // Then schedule
-    cleanupInterval = setInterval(() => {
-        TempManager.cleanupOldFiles();
-    }, intervalHours * 60 * 60 * 1000);
-}
-
-export function stopAutoCleanup(): void {
-    if (cleanupInterval) {
-        clearInterval(cleanupInterval);
-        cleanupInterval = null;
-        console.log('[TempManager] Auto-cleanup stopped');
+    static stopAutoCleanup(): void {
+        if (TempManager.cleanupInterval) {
+            clearInterval(TempManager.cleanupInterval);
+            TempManager.cleanupInterval = null;
+            console.log('[TempManager] Auto-cleanup stopped');
+        }
     }
 }

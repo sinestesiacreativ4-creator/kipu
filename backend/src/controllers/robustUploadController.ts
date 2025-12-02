@@ -1,9 +1,11 @@
-import { Request, Response } from 'express';
+import { Request, Response, Router } from 'express';
 import { chunkUploadService } from '../services/chunkUploadService';
 import { robustUpload } from '../config/robustUpload.config';
 import { createError } from '../middleware/errorHandler';
 
-export const RobustUploadController = {
+const router = Router();
+
+const RobustUploadController = {
     // Middleware wrapper to handle Multer errors specifically
     uploadMiddleware: (req: Request, res: Response, next: Function) => {
         const upload = robustUpload.single('chunk');
@@ -72,3 +74,9 @@ export const RobustUploadController = {
         }
     }
 };
+
+// Define Routes
+router.post('/upload/chunk', RobustUploadController.uploadMiddleware, RobustUploadController.uploadChunk);
+router.post('/upload/merge', RobustUploadController.mergeChunks);
+
+export default router;

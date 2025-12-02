@@ -1,4 +1,4 @@
-import { Request, Response } from 'express';
+import { Request, Response, Router } from 'express';
 import { audioQueue } from '../services/queue';
 import { createRedisClient } from '../config/redis.config';
 import prisma from '../services/prisma';
@@ -9,6 +9,8 @@ import { validateAudioFile } from '../services/audioValidator';
 import { TempManager } from '../services/tempManager';
 import { createError } from '../middleware/errorHandler';
 
+const router = Router();
+
 // Initialize services
 const redis = createRedisClient();
 const fileManager = new GoogleAIFileManager(process.env.GEMINI_API_KEY!);
@@ -16,7 +18,7 @@ const fileManager = new GoogleAIFileManager(process.env.GEMINI_API_KEY!);
 // Redis size limit (30 MB)
 const REDIS_SIZE_LIMIT = 30 * 1024 * 1024;
 
-export const UploadController = {
+const UploadController = {
     // Use robust Multer config
     uploadMiddleware: [uploadConfig.single('file'), handleMulterError],
 
@@ -185,3 +187,9 @@ export const UploadController = {
         });
     }
 };
+
+// Define Routes
+router.post('/upload', UploadController.uploadMiddleware, UploadController.uploadToRedis);
+router.get('/status/:recordingId', UploadController.getStatus);
+
+export default router;
