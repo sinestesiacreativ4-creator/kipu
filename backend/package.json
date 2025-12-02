@@ -4,7 +4,7 @@
     "description": "Backend asíncrono para procesamiento de audio de larga duración",
     "main": "dist/index.js",
     "scripts": {
-        "build": "npm install && npx prisma generate && tsc",
+        "build": "npm install && npx prisma migrate deploy && npx prisma generate && tsc",
         "start": "node dist/index.js",
         "start:worker": "node dist/workers/audioWorker.js",
         "dev": "ts-node-dev src/index.ts",
