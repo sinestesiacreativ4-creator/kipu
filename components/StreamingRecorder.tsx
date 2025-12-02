@@ -185,16 +185,12 @@ const StreamingRecorder: React.FC<StreamingRecorderProps> = ({
                 console.log('[StreamingRecorder] Waiting for upload queue to finish...');
                 await uploadQueueRef.current;
 
-                // Finalize recording on server (Merge chunks)
+                // Finalize recording on server (Use legacy endpoint with DB integration)
                 try {
-                    const response = await fetch(`${API_URL}/upload/merge`, {
+                    const response = await fetch(`${API_URL}/api/finalize-recording`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            fileId: recordingId,
-                            fileName: `recording-${recordingId}.wav`,
-                            totalChunks: chunkSequenceRef.current
-                        })
+                        body: JSON.stringify({ recordingId })
                     });
 
                     if (!response.ok) {
