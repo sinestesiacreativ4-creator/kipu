@@ -12,6 +12,7 @@ dotenv.config();
 import uploadRoutes from './controllers/uploadController';
 import chunkRoutes from './controllers/chunkController';
 import robustUploadRoutes from './controllers/robustUploadController';
+import demoRoutes from './controllers/demoController';
 import { errorHandler } from './middleware/errorHandler';
 import { TempManager } from './services/tempManager';
 import { initTempFolders } from './config/upload.config';
@@ -91,6 +92,7 @@ app.get('/health', (req, res) => {
 // B. API Routes
 app.use('/api', uploadRoutes); // Legacy routes
 app.use('/api', chunkRoutes);  // Chunk routes (upload-chunk, finalize-recording)
+app.use('/api', demoRoutes);   // Demo data initialization (TEMPORARY)
 app.use('/', robustUploadRoutes); // New robust routes (/upload/chunk)
 
 // C. 404 Handler
