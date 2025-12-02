@@ -53,7 +53,7 @@ export function createRedisClient(): IORedis {
         console.warn('[Redis] Connection closed');
     });
 
-    redis.on('reconnecting', (delay) => {
+    redis.on('reconnecting', (delay: number) => {
         console.log(`[Redis] Reconnecting in ${delay}ms...`);
     });
 
@@ -66,7 +66,8 @@ export function createRedisClient(): IORedis {
 async function validateRedisConfig(redis: IORedis): Promise<void> {
     try {
         // Check eviction policy
-        const policyResult = await redis.config('GET', 'maxmemory-policy');
+        // Cast result to any[] to handle the tuple response [key, value]
+        const policyResult = await redis.config('GET', 'maxmemory-policy') as unknown as any[];
         const policy = policyResult?.[1];
 
         if (policy !== 'noeviction') {
@@ -85,7 +86,7 @@ async function validateRedisConfig(redis: IORedis): Promise<void> {
         }
 
         // Check memory limit
-        const maxmemoryResult = await redis.config('GET', 'maxmemory');
+        const maxmemoryResult = await redis.config('GET', 'maxmemory') as unknown as any[];
         const maxmemory = parseInt(maxmemoryResult?.[1] || '0');
 
         if (maxmemory === 0) {
@@ -96,7 +97,7 @@ async function validateRedisConfig(redis: IORedis): Promise<void> {
         }
 
         // Check persistence
-        const aofResult = await redis.config('GET', 'appendonly');
+        const aofResult = await redis.config('GET', 'appendonly') as unknown as any[];
         const aofEnabled = aofResult?.[1] === 'yes';
 
         if (!aofEnabled) {
