@@ -4,8 +4,8 @@ const prisma = new PrismaClient();
 
 async function main() {
     try {
-        const users = await prisma.user.findMany();
-        console.log('Users:', users);
+        const profiles = await prisma.profile.findMany();
+        console.log('Profiles:', profiles);
         const orgs = await prisma.organization.findMany();
         console.log('Orgs:', orgs);
     } catch (e) {
