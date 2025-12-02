@@ -9,6 +9,7 @@ import OrgLogin from './components/OrgLogin';
 import UploadProgress from './components/UploadProgress';
 import { Recording, RecordingStatus, Marker, UserProfile, Organization } from './types';
 import { blobToBase64, formatTime, generateId } from './utils';
+import { safeStorage } from './utils/safeStorage';
 import { analyzeAudio } from './services/geminiService';
 import { api } from './services/api';
 import { uploadService } from './services/uploadService';
@@ -223,13 +224,13 @@ const AppContent = () => {
 
   // Load Org from LocalStorage on init
   useEffect(() => {
-    const savedOrg = localStorage.getItem('kipu_org');
+    const savedOrg = safeStorage.getItem('kipu_org');
     if (savedOrg) {
       try {
         setCurrentOrg(JSON.parse(savedOrg));
       } catch (e) {
         console.error("Error parsing saved org", e);
-        localStorage.removeItem('kipu_org');
+        safeStorage.removeItem('kipu_org');
       }
     }
     // Always stop loading after checking storage
@@ -251,8 +252,8 @@ const AppContent = () => {
         // If fetching profiles fails (likely due to invalid org ID from old DB), reset state
         console.log("Resetting invalid organization state...");
         setCurrentOrg(null);
-        localStorage.removeItem('kipu_org');
-        localStorage.removeItem('kipu_user');
+        safeStorage.removeItem('kipu_org');
+        safeStorage.removeItem('kipu_user');
       } finally {
         setIsLoading(false);
       }
@@ -351,8 +352,8 @@ const AppContent = () => {
       if (err.code === '23503' && err.message?.includes('organizations')) {
         alert("Tu sesión de organización ha expirado o no es válida. Por favor ingresa el código nuevamente.");
         setCurrentOrg(null);
-        localStorage.removeItem('kipu_org');
-        localStorage.removeItem('kipu_user');
+        safeStorage.removeItem('kipu_org');
+        safeStorage.removeItem('kipu_user');
       } else {
         alert("Error al crear el perfil: " + (err.message || "Error desconocido"));
       }
@@ -381,7 +382,7 @@ const AppContent = () => {
 
   const handleOrgSelected = (org: Organization) => {
     setCurrentOrg(org);
-    localStorage.setItem('kipu_org', JSON.stringify(org));
+    safeStorage.setItem('kipu_org', JSON.stringify(org));
   };
 
   const handleExitOrg = () => {
@@ -389,7 +390,7 @@ const AppContent = () => {
       setCurrentOrg(null);
       setCurrentUser(null);
       setRecordings([]);
-      localStorage.removeItem('kipu_org');
+      safeStorage.removeItem('kipu_org');
     }
   };
 
