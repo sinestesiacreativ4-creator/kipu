@@ -174,7 +174,9 @@ export const UploadController = {
         });
 
         if (!recording) {
-            throw createError('Recording not found', 404, 'NOT_FOUND');
+            // Return 200 with status not_found to avoid CORS issues on error responses
+            // and prevent frontend console errors during polling
+            return res.status(200).json({ status: 'not_found' });
         }
 
         res.json({
