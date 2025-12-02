@@ -15,6 +15,7 @@ import robustUploadRoutes from './controllers/robustUploadController';
 import demoRoutes from './controllers/demoController';
 import organizationRoutes from './controllers/organizationController';
 import recordingRoutes from './controllers/recordingController';
+import profileRoutes from './controllers/profileController';
 import { errorHandler } from './middleware/errorHandler';
 import { TempManager } from './services/tempManager';
 import { initTempFolders } from './config/upload.config';
@@ -97,6 +98,7 @@ app.use('/api', chunkRoutes);  // Chunk routes (upload-chunk, finalize-recording
 app.use('/api', demoRoutes);   // Demo data initialization (TEMPORARY)
 app.use('/api', organizationRoutes); // Organization & Login routes
 app.use('/api', recordingRoutes); // Recording queries and management
+app.use('/api', profileRoutes); // Profile queries
 app.use('/', robustUploadRoutes); // New robust routes (/upload/chunk)
 
 // C. 404 Handler
