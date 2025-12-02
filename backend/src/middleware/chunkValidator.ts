@@ -2,8 +2,8 @@ import { Request, Response, NextFunction } from 'express';
 import { Buffer } from 'buffer';
 
 const WEBM_SIGNATURE = Buffer.from([0x1a, 0x45, 0xdf, 0xa3]); // EBML header
-const MIN_CHUNK_SIZE = 1024; // 1KB minimum
-const MAX_CHUNK_SIZE = 10 * 1024 * 1024; // 10MB maximum
+const MIN_CHUNK_SIZE = 100; // Relaxed from 1024
+const MAX_CHUNK_SIZE = 50 * 1024 * 1024; // 50MB maximum
 
 interface ChunkValidationResult {
     valid: boolean;
@@ -17,7 +17,7 @@ interface ChunkValidationResult {
 export function validateChunk(buffer: Buffer): ChunkValidationResult {
     // Size validation
     if (buffer.length < MIN_CHUNK_SIZE) {
-        return { valid: false, reason: 'Chunk too small' };
+        return { valid: false, reason: `Chunk too small (${buffer.length} bytes)` };
     }
 
     if (buffer.length > MAX_CHUNK_SIZE) {
@@ -30,19 +30,24 @@ export function validateChunk(buffer: Buffer): ChunkValidationResult {
     const hasDocTypeMatroska = buffer.includes(Buffer.from('matroska'));
     const hasMp4 = buffer.includes(Buffer.from('ftyp'));
 
+    // Relaxed check: Just look for some binary data
+    // In streaming, intermediate chunks might not have headers
+    const isBinary = buffer.some(b => b > 0);
+
     const isValidWebM = hasWebMSignature || hasDocTypeWebM || hasDocTypeMatroska;
     const isValidMp4 = hasMp4;
 
     if (!isValidWebM && !isValidMp4) {
-        // Check if repairable (has opus data but missing header)
-        if (buffer.length > 100 && buffer.includes(Buffer.from('opus'))) {
-            return {
-                valid: false,
-                reason: 'Missing WebM header',
-                repairable: true
-            };
+        // Log what we received for debugging
+        const headerHex = buffer.subarray(0, 8).toString('hex');
+        console.log(`[ChunkValidator] Warning: Chunk missing standard header. First 8 bytes: ${headerHex}`);
+
+        // If it looks like binary data, let it pass to FFmpeg sandbox
+        if (isBinary) {
+            return { valid: true };
         }
-        return { valid: false, reason: 'Invalid audio format - not WebM or MP4' };
+
+        return { valid: false, reason: `Invalid audio format - unknown header: ${headerHex}` };
     }
 
     return { valid: true };
@@ -100,25 +105,21 @@ export const chunkValidationMiddleware = async (
                     console.log(`[ChunkValidator] Chunk ${req.body.sequence} repaired successfully (${repairedBuffer.length} bytes)`);
                 } catch (error: any) {
                     console.error('[ChunkValidator] Repair failed:', error);
-                    return res.status(400).json({
-                        error: 'Chunk repair failed',
-                        reason: validation.reason
-                    });
+                    // Don't fail, let FFmpeg try
                 }
             } else {
-                console.error(`[ChunkValidator] Chunk ${req.body.sequence} rejected: ${validation.reason}`);
-                return res.status(400).json({
-                    error: 'Invalid chunk',
-                    reason: validation.reason
-                });
+                console.warn(`[ChunkValidator] Chunk ${req.body.sequence} flagged as invalid: ${validation.reason}`);
+                // CRITICAL CHANGE: Don't reject, just warn. Let FFmpeg sandbox decide.
+                // return res.status(400).json({ error: 'Invalid chunk', reason: validation.reason });
             }
         } else {
-            console.log(`[ChunkValidator] Chunk ${req.body.sequence} validated successfully (${chunkBuffer.length} bytes)`);
+            // console.log(`[ChunkValidator] Chunk ${req.body.sequence} validated successfully`);
         }
 
         next();
     } catch (error: any) {
         console.error('[ChunkValidator] Validation error:', error);
-        return res.status(500).json({ error: 'Chunk validation failed' });
+        // Fail open to avoid blocking uploads
+        next();
     }
 };

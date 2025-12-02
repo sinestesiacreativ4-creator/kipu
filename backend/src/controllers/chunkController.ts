@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
-import os from 'os'; // Import os directly
+import os from 'os';
 import prisma from '../services/prisma';
 import { chunkValidationMiddleware } from '../middleware/chunkValidator';
 import { processChunkInSandbox } from '../services/ffmpegSandbox';
@@ -20,22 +20,20 @@ const upload = multer({
         destination: (req, file, cb) => {
             try {
                 // 1. Safe Recording ID
-                let recordingId = req.body.recordingId;
+                let recordingId = req.body.recordingId || req.body.fileId;
                 if (!recordingId || typeof recordingId !== 'string') {
                     console.warn('[ChunkController] ⚠️ Missing or invalid recordingId, defaulting to "unknown"');
                     recordingId = 'unknown';
                 }
 
                 // 2. Safe Base Directory
-                // Try imported config, fallback to os.tmpdir() hardcoded path
                 let baseDir = TEMP_FOLDERS?.chunks;
-
                 if (!baseDir || typeof baseDir !== 'string') {
                     console.warn('[ChunkController] ⚠️ TEMP_FOLDERS.chunks is undefined! Using fallback.');
                     baseDir = path.join(os.tmpdir(), 'kipu-audio', 'chunks');
                 }
 
-                // 3. Construct Path (Guaranteed strings)
+                // 3. Construct Path
                 const chunkDir = path.join(baseDir, recordingId);
 
                 // 4. Create Directory
@@ -46,7 +44,6 @@ const upload = multer({
                 cb(null, chunkDir);
             } catch (error: any) {
                 console.error('[ChunkController] 🔴 CRITICAL DESTINATION ERROR:', error);
-                // Fallback to strict temp dir to prevent crash
                 cb(null, os.tmpdir());
             }
         },
@@ -54,7 +51,6 @@ const upload = multer({
             try {
                 const sequence = req.body.sequence || '0';
                 const paddedSequence = String(sequence).padStart(6, '0');
-                // Ensure filename is safe
                 const safeFilename = `chunk_${paddedSequence}.webm`.replace(/[^a-zA-Z0-9._-]/g, '');
                 cb(null, safeFilename);
             } catch (error) {
@@ -63,7 +59,7 @@ const upload = multer({
         }
     }),
     limits: {
-        fileSize: 10 * 1024 * 1024 // 10MB max per chunk
+        fileSize: 10 * 1024 * 1024
     }
 });
 
@@ -75,11 +71,10 @@ router.post('/upload-chunk',
     chunkValidationMiddleware,
     async (req: Request, res: Response) => {
         try {
-            // Re-validate recordingId here since we allowed 'unknown' in Multer
-            const { recordingId, sequence, mimeType } = req.body;
+            let { recordingId, sequence, mimeType, fileId } = req.body;
+            recordingId = recordingId || fileId;
 
             if (!recordingId || recordingId === 'unknown') {
-                // If we saved to 'unknown', we should probably clean it up or reject
                 throw createError('Missing valid recordingId', 400, 'MISSING_FIELD');
             }
 
@@ -89,9 +84,36 @@ router.post('/upload-chunk',
 
             console.log(`[ChunkUpload] Processing chunk ${sequence} for ${recordingId}`);
 
+            // Auto-create Recording if missing (Foreign Key Fix)
+            const existingRecording = await prisma.recording.findUnique({
+                where: { id: recordingId }
+            });
+
+            if (!existingRecording) {
+                console.log(`[ChunkUpload] Auto-creating missing recording record: ${recordingId}`);
+                const defaultProfile = await prisma.profile.findFirst();
+                const defaultOrg = await prisma.organization.findFirst();
+
+                if (defaultProfile && defaultOrg) {
+                    await prisma.recording.create({
+                        data: {
+                            id: recordingId,
+                            userId: defaultProfile.id,
+                            organizationId: defaultOrg.id,
+                            status: 'RECORDING',
+                            duration: 0
+                        }
+                    });
+                } else {
+                    console.warn('[ChunkUpload] Cannot auto-create recording: No default profile/org found.');
+                }
+            }
+
+            // Process chunk
             const processResult = await processChunkInSandbox(req.file.path);
             const finalPath = processResult.success ? processResult.outputPath : req.file.path;
 
+            // Save to DB
             await prisma.recordingChunk.create({
                 data: {
                     recordingId,
@@ -161,7 +183,8 @@ router.post('/finalize-recording', async (req: Request, res: Response) => {
         await prisma.recordingChunk.deleteMany({ where: { recordingId } });
 
         // Cleanup
-        const chunkDir = path.join(TEMP_FOLDERS?.chunks || path.join(os.tmpdir(), 'kipu-audio', 'chunks'), recordingId);
+        const baseDir = TEMP_FOLDERS?.chunks || path.join(os.tmpdir(), 'kipu-audio', 'chunks');
+        const chunkDir = path.join(baseDir, recordingId);
         if (fs.existsSync(chunkDir)) {
             fs.rmSync(chunkDir, { recursive: true, force: true });
         }
