@@ -34,23 +34,29 @@ const StreamingRecorder: React.FC<StreamingRecorderProps> = ({
     // ============================================
     // CHUNK UPLOAD HANDLER (Real-time streaming)
     // ============================================
+    // ============================================
+    // CHUNK UPLOAD HANDLER (Real-time streaming)
+    // ============================================
     const uploadChunk = async (chunk: Blob, sequence: number): Promise<void> => {
         const formData = new FormData();
+        // CRITICAL: Metadata MUST come before the file for Multer to process it correctly
+        formData.append('fileId', recordingId);
+        formData.append('chunkIndex', sequence.toString());
+        formData.append('totalChunks', 'unknown'); // Streaming, so total is unknown yet
         formData.append('chunk', chunk, `chunk_${sequence}.webm`);
-        formData.append('recordingId', recordingId);
-        formData.append('sequence', sequence.toString());
-        formData.append('mimeType', chunk.type);
 
         const maxRetries = 3;
         for (let attempt = 0; attempt < maxRetries; attempt++) {
             try {
-                const response = await fetch(`${API_URL}/api/upload-chunk`, {
+                // Use new robust endpoint
+                const response = await fetch(`${API_URL}/upload/chunk`, {
                     method: 'POST',
                     body: formData,
                 });
 
                 if (!response.ok) {
-                    throw new Error(`Upload failed: ${response.status}`);
+                    const errorText = await response.text();
+                    throw new Error(`Upload failed: ${response.status} - ${errorText}`);
                 }
 
                 const result = await response.json();
@@ -179,12 +185,16 @@ const StreamingRecorder: React.FC<StreamingRecorderProps> = ({
                 console.log('[StreamingRecorder] Waiting for upload queue to finish...');
                 await uploadQueueRef.current;
 
-                // Finalize recording on server (FFmpeg concat)
+                // Finalize recording on server (Merge chunks)
                 try {
-                    const response = await fetch(`${API_URL}/api/finalize-recording`, {
+                    const response = await fetch(`${API_URL}/upload/merge`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ recordingId })
+                        body: JSON.stringify({
+                            fileId: recordingId,
+                            fileName: `recording-${recordingId}.wav`,
+                            totalChunks: chunkSequenceRef.current
+                        })
                     });
 
                     if (!response.ok) {
