@@ -37,6 +37,9 @@ const connection = new IORedis(redisUrl, redisOptions);
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
 const streamPipeline = promisify(pipeline);
 
+// Import Circuit Breaker (Module 5)
+import { modelCircuitBreaker, executeWithBackoff } from '../services/circuitBreaker';
+
 // Model configuration with fallback priority
 const PRIMARY_MODEL = "gemini-2.5-flash";
 const FALLBACK_MODELS = [

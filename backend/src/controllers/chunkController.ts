@@ -2,11 +2,11 @@ import { Router, Request, Response } from 'express';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
-import { promisify } from 'util';
-import { exec } from 'child_process';
 import prisma from '../services/prisma';
+import { chunkValidationMiddleware } from '../middleware/chunkValidator';
+import { processChunkInSandbox } from '../services/ffmpegSandbox';
+import { assembleRecording, ChunkMetadata } from '../services/masterAssembler';
 
-const execAsync = promisify(exec);
 const router = Router();
 
 // ============================================
@@ -38,132 +38,129 @@ const upload = multer({
 });
 
 // ============================================
-// UPLOAD CHUNK ENDPOINT
+// UPLOAD CHUNK ENDPOINT (with validation)
 // ============================================
-router.post('/upload-chunk', upload.single('chunk'), async (req: Request, res: Response) => {
-    try {
-        const { recordingId, sequence, mimeType } = req.body;
+router.post('/upload-chunk',
+    upload.single('chunk'),
+    chunkValidationMiddleware, // Module 1: Validate and repair
+    async (req: Request, res: Response) => {
+        try {
+            const { recordingId, sequence, mimeType } = req.body;
 
-        if (!req.file) {
-            return res.status(400).json({ error: 'No chunk file uploaded' });
-        }
-
-        console.log(`[ChunkUpload] Received chunk ${sequence} for recording ${recordingId}`);
-        console.log(`[ChunkUpload] Chunk size: ${req.file.size} bytes`);
-
-        // Track chunk in database
-        await prisma.recordingChunk.create({
-            data: {
-                recordingId,
-                sequence: parseInt(sequence),
-                filePath: req.file.path,
-                size: req.file.size,
-                mimeType: mimeType || 'audio/webm'
+            if (!req.file) {
+                return res.status(400).json({ error: 'No chunk file uploaded' });
             }
-        });
 
-        res.json({
-            success: true,
-            sequence: parseInt(sequence),
-            size: req.file.size
-        });
+            console.log(`[ChunkUpload] Validated chunk ${sequence} for recording ${recordingId}`);
 
-    } catch (error: any) {
-        console.error('[ChunkUpload] Error:', error);
-        res.status(500).json({ error: error.message });
+            // Process chunk in sandbox immediately after upload
+            // Module 3: FFmpeg Sandbox
+            const processResult = await processChunkInSandbox(req.file.path);
+
+            const chunkStatus = processResult.success ? 'ok' : 'hole';
+            const finalPath = processResult.success ? processResult.outputPath : req.file.path;
+
+            if (!processResult.success) {
+                console.warn(`[ChunkUpload] Chunk ${sequence} failed processing: ${processResult.error}`);
+            }
+
+            // Track chunk in database with processing status
+            await prisma.recordingChunk.create({
+                data: {
+                    recordingId,
+                    sequence: parseInt(sequence),
+                    filePath: finalPath || req.file.path,
+                    size: processResult.success ? fs.statSync(finalPath!).size : req.file.size,
+                    mimeType: processResult.success ? 'audio/wav' : (mimeType || 'audio/webm')
+                }
+            });
+
+            res.json({
+                success: true,
+                sequence: parseInt(sequence),
+                size: req.file.size,
+                processed: processResult.success,
+                status: chunkStatus
+            });
+
+        } catch (error: any) {
+            console.error('[ChunkUpload] Error:', error);
+            res.status(500).json({ error: error.message });
+        }
     }
-});
+);
 
 // ============================================
-// FINALIZE RECORDING (FFmpeg Reassembly)
+// FINALIZE RECORDING (Master Assembler)
 // ============================================
 router.post('/finalize-recording', async (req: Request, res: Response) => {
     const { recordingId } = req.body;
 
     try {
-        console.log(`[Finalize] Starting finalization for recording ${recordingId}...`);
+        console.log(`[Finalize] Starting robust assembly for recording ${recordingId}...`);
 
         // Get all chunks ordered by sequence
-        const chunks = await prisma.recordingChunk.findMany({
+        const dbChunks = await prisma.recordingChunk.findMany({
             where: { recordingId },
             orderBy: { sequence: 'asc' }
         });
 
-        if (chunks.length === 0) {
+        if (dbChunks.length === 0) {
             return res.status(400).json({ error: 'No chunks found for recording' });
         }
 
-        console.log(`[Finalize] Found ${chunks.length} chunks to merge`);
+        console.log(`[Finalize] Found ${dbChunks.length} chunks`);
 
-        // ============================================
-        // FFMPEG REASSEMBLY
-        // ============================================
-        const chunkDir = path.dirname(chunks[0].filePath);
-        const outputPath = path.join(chunkDir, `${recordingId}_final.webm`);
-        const concatListPath = path.join(chunkDir, 'concat_list.txt');
+        // Convert to ChunkMetadata format
+        const chunkMetadata: ChunkMetadata[] = dbChunks.map(chunk => {
+            const fileExists = fs.existsSync(chunk.filePath);
+            const status: 'ok' | 'hole' = fileExists && chunk.filePath.includes('_processed.wav') ? 'ok' : 'hole';
 
-        // Create FFmpeg concat file list
-        const concatList = chunks
-            .map(chunk => `file '${path.basename(chunk.filePath)}'`)
-            .join('\n');
+            return {
+                chunk_id: chunk.id,
+                sequence: chunk.sequence,
+                status,
+                duration: 10, // Approximate 10s per chunk
+                worker_id: 0,
+                file_path: fileExists ? chunk.filePath : undefined,
+                error: fileExists ? undefined : 'File not found',
+                timestamp: chunk.createdAt.getTime()
+            };
+        });
 
-        fs.writeFileSync(concatListPath, concatList);
+        // Module 4: Master Assembler
+        const assemblyResult = await assembleRecording(recordingId, chunkMetadata);
 
-        // Run FFmpeg concat (lossless, fast)
-        const ffmpegCommand = `ffmpeg -f concat -safe 0 -i "${concatListPath}" -c copy "${outputPath}"`;
-
-        console.log('[Finalize] Running FFmpeg concatenation...');
-        await execAsync(ffmpegCommand);
-
-        // Verify output file exists
-        if (!fs.existsSync(outputPath)) {
-            throw new Error('FFmpeg failed to create output file');
+        if (!assemblyResult.success) {
+            throw new Error(assemblyResult.error || 'Assembly failed');
         }
 
-        const fileStats = fs.statSync(outputPath);
-        console.log(`[Finalize] Final file created: ${fileStats.size} bytes`);
-
-        // Calculate approximate duration (chunks * 10 seconds each)
-        const approximateDuration = chunks.length * 10;
+        console.log(`[Finalize] Assembly complete: ${assemblyResult.successfulChunks}/${assemblyResult.totalChunks} chunks, ${assemblyResult.holes} holes`);
 
         // Update recording in database
         await prisma.recording.update({
             where: { id: recordingId },
             data: {
-                audioKey: outputPath,
+                audioKey: assemblyResult.finalPath,
                 status: 'PROCESSING',
-                duration: approximateDuration
+                duration: assemblyResult.totalDuration
             }
         });
-
-        // Cleanup temporary chunks
-        chunks.forEach(chunk => {
-            try {
-                fs.unlinkSync(chunk.filePath);
-            } catch (e) {
-                console.warn(`[Finalize] Failed to delete chunk: ${chunk.filePath}`);
-            }
-        });
-
-        try {
-            fs.unlinkSync(concatListPath);
-        } catch (e) {
-            console.warn('[Finalize] Failed to delete concat list');
-        }
 
         // Delete chunk records
         await prisma.recordingChunk.deleteMany({
             where: { recordingId }
         });
 
-        console.log(`[Finalize] Recording ${recordingId} finalized successfully`);
-
         res.json({
             success: true,
-            finalPath: outputPath,
-            totalSize: fileStats.size,
-            chunksProcessed: chunks.length,
-            duration: approximateDuration
+            finalPath: assemblyResult.finalPath,
+            totalChunks: assemblyResult.totalChunks,
+            successfulChunks: assemblyResult.successfulChunks,
+            holes: assemblyResult.holes,
+            holeSequences: assemblyResult.holeSequences,
+            duration: assemblyResult.totalDuration,
+            metadataPath: assemblyResult.metadataPath
         });
 
     } catch (error: any) {
