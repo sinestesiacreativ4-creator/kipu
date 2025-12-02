@@ -22,7 +22,7 @@ router.post('/init-demo', async (req: Request, res: Response) => {
                 data: {
                     id: uuidv4(),
                     name: 'hernandez',
-                    settings: {}
+                    slug: 'hernandez'
                 }
             });
             console.log('[DemoInit] ✓ Created organization:', organization.id);
@@ -45,7 +45,7 @@ router.post('/init-demo', async (req: Request, res: Response) => {
                     organizationId: organization.id,
                     name: 'Usuario Demo',
                     role: 'Administrador',
-                    avatar: '👤'
+                    avatarColor: '#3b82f6'
                 }
             });
             console.log('[DemoInit] ✓ Created profile:', profile.id);
