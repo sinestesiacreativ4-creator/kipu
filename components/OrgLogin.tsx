@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { api } from '../services/api';
 import { Organization } from '../types';
-import { ArrowRight, Loader2 } from 'lucide-react';
+import { ArrowRight, Loader2, Building2 } from 'lucide-react';
 
 interface OrgLoginProps {
     onOrgSelected: (org: Organization) => void;
@@ -89,6 +89,31 @@ const OrgLogin: React.FC<OrgLoginProps> = ({ onOrgSelected }) => {
                         )}
                     </button>
                 </form>
+
+                <div className="mt-6 pt-6 border-t border-stone-100 dark:border-stone-800">
+                    <button
+                        onClick={async () => {
+                            setIsLoading(true);
+                            setError(null);
+                            try {
+                                // Generate random slug
+                                const randomSlug = `org-${Math.random().toString(36).substring(2, 9)}`;
+                                const org = await api.createOrganization(randomSlug, randomSlug);
+                                onOrgSelected(org);
+                            } catch (err) {
+                                console.error(err);
+                                setError('Error al crear organización automática.');
+                            } finally {
+                                setIsLoading(false);
+                            }
+                        }}
+                        disabled={isLoading}
+                        className="w-full py-3 px-4 bg-white dark:bg-stone-800 border border-stone-200 dark:border-stone-700 hover:bg-stone-50 dark:hover:bg-stone-700 text-stone-600 dark:text-stone-300 font-medium rounded-xl transition-all flex items-center justify-center gap-2"
+                    >
+                        <Building2 size={20} />
+                        Crear Organización Nueva
+                    </button>
+                </div>
 
                 <div className="mt-8 text-center">
                     <p className="text-xs text-stone-400">

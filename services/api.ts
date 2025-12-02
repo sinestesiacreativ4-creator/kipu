@@ -21,13 +21,15 @@ export const api = {
             body: JSON.stringify({ name, slug })
         });
         if (!response.ok) throw new Error('Error creating organization');
-        return response.json();
+        const data = await response.json();
+        return data.organization; // Return the organization object directly
     },
 
     // =============== PROFILES ===============
 
     async getProfiles(organizationId: string) {
-        const response = await fetch(`${API_URL}/api/profiles/${organizationId}`);
+        // Correct route: /api/organizations/:id/profiles
+        const response = await fetch(`${API_URL}/api/organizations/${organizationId}/profiles`);
         if (!response.ok) throw new Error('Error fetching profiles');
         return response.json();
     },
