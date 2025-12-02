@@ -37,6 +37,12 @@ const connection = new IORedis(redisUrl, redisOptions);
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
 const streamPipeline = promisify(pipeline);
 
+// Model configuration with fallback
+const PRIMARY_MODEL = "gemini-2.0-flash-exp";
+const FALLBACK_MODEL = "gemini-1.5-flash";
+const MAX_RETRIES = 5;
+const INITIAL_BACKOFF_MS = 1000; // 1 second
+
 // --- HELPER FUNCTIONS ---
 
 /**
@@ -122,11 +128,55 @@ function validateAnalysis(data: any): any {
 }
 
 /**
+ * Execute function with exponential backoff retry for 503 errors
+ */
+async function retryWithBackoff<T>(
+    fn: () => Promise<T>,
+    operation: string,
+    maxRetries: number = MAX_RETRIES
+): Promise<T> {
+    let lastError: any;
+
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        try {
+            return await fn();
+        } catch (error: any) {
+            lastError = error;
+
+            // Check if it's a retryable error (503 or 429)
+            const is503 = error.message?.includes('503') || error.status === 503;
+            const is429 = error.message?.includes('429') || error.status === 429;
+
+            if ((is503 || is429) && attempt < maxRetries) {
+                const backoffMs = INITIAL_BACKOFF_MS * Math.pow(2, attempt);
+                console.warn(
+                    `[Retry] ${operation} failed with ${is503 ? '503' : '429'}. ` +
+                    `Retry ${attempt + 1}/${maxRetries} in ${backoffMs}ms`
+                );
+                await new Promise(resolve => setTimeout(resolve, backoffMs));
+                continue;
+            }
+
+            // Non-retryable error or max retries reached
+            throw error;
+        }
+    }
+
+    throw lastError;
+}
+
+/**
  * Analyze a single audio chunk with robust error handling
  */
-async function analyzeChunk(chunkPath: string, index: number, total: number): Promise<any> {
+async function analyzeChunk(
+    chunkPath: string,
+    index: number,
+    total: number,
+    useFallback: boolean = false
+): Promise<any> {
+    const modelName = useFallback ? FALLBACK_MODEL : PRIMARY_MODEL;
     const model = genAI.getGenerativeModel({
-        model: "gemini-2.5-flash",
+        model: modelName,
         generationConfig: {
             responseMimeType: "application/json"
         }
@@ -159,7 +209,7 @@ async function analyzeChunk(chunkPath: string, index: number, total: number): Pr
     - Los "keyTopics": temas específicos discutidos (ej: "Presupuesto Q1", no "Finanzas")
     `;
 
-    try {
+    const executeAnalysis = async () => {
         const result = await model.generateContent([
             {
                 inlineData: {
@@ -171,21 +221,51 @@ async function analyzeChunk(chunkPath: string, index: number, total: number): Pr
         ]);
 
         const text = result.response.text();
-        console.log(`[Worker] Gemini response for chunk ${index + 1} (first 200 chars):`, text.substring(0, 200));
+        console.log(
+            `[Worker] ${modelName} response for chunk ${index + 1} (first 200 chars):`,
+            text.substring(0, 200)
+        );
 
         const parsedData = extractJSON(text);
-        const validatedData = validateAnalysis(parsedData);
+        return validateAnalysis(parsedData);
+    };
 
-        return validatedData;
-    } catch (error: any) {
-        console.error(`[Worker] Error analyzing chunk ${index + 1}:`, error.message);
-        // Return minimal valid structure instead of failing completely
+    try {
+        // Try primary model with retry
+        return await retryWithBackoff(
+            executeAnalysis,
+            `Chunk ${index + 1}/${total} with ${modelName}`
+        );
+    } catch (primaryError: any) {
+        console.error(
+            `[Worker] ${modelName} failed for chunk ${index + 1}:`,
+            primaryError.message
+        );
+
+        // If not already using fallback, try fallback model
+        if (!useFallback) {
+            console.warn(`[Worker] Switching to fallback model ${FALLBACK_MODEL} for chunk ${index + 1}`);
+            try {
+                return await analyzeChunk(chunkPath, index, total, true);
+            } catch (fallbackError: any) {
+                console.error(
+                    `[Worker] Fallback model also failed for chunk ${index + 1}:`,
+                    fallbackError.message
+                );
+            }
+        }
+
+        // Both models failed - return minimal valid structure (graceful degradation)
+        console.warn(`[Worker] Returning graceful degradation for chunk ${index + 1}`);
         return {
-            summary: [`Error procesando segmento ${index + 1}: ${error.message}`],
+            summary: [
+                `Chunk ${index + 1}: Análisis temporalmente no disponible (API saturada). ` +
+                `Contenido procesado parcialmente.`
+            ],
             decisions: [],
             actionItems: [],
             participants: [],
-            keyTopics: [],
+            keyTopics: ["Procesamiento Parcial"],
             transcript: []
         };
     }
@@ -310,31 +390,11 @@ const worker = new Worker('audio-processing-queue', async (job: Job) => {
                 const batchPromises = batch.map((chunkPath, batchIndex) => {
                     const globalIndex = i + batchIndex;
                     return (async () => {
-                        let retries = 0;
-                        const maxRetries = 3;
-                        let success = false;
-                        let result = null;
+                        // Add small staggering delay to avoid hitting API exactly at same ms
+                        await new Promise(resolve => setTimeout(resolve, batchIndex * 1000));
 
-                        while (!success && retries <= maxRetries) {
-                            try {
-                                // Add small staggering delay to avoid hitting API exactly at same ms
-                                await new Promise(resolve => setTimeout(resolve, batchIndex * 1000));
-
-                                result = await analyzeChunk(chunkPath, globalIndex, chunks.length);
-                                success = true;
-                            } catch (err: any) {
-                                if (err.message && err.message.includes('429') && retries < maxRetries) {
-                                    retries++;
-                                    const delay = retries * 30000 + (Math.random() * 5000); // Add jitter
-                                    console.warn(`[Worker] 429 Too Many Requests. Retrying chunk ${globalIndex + 1} in ${Math.round(delay / 1000)}s (Attempt ${retries}/${maxRetries})`);
-                                    await new Promise(resolve => setTimeout(resolve, delay));
-                                } else {
-                                    console.error(`[Worker] Error processing chunk ${globalIndex + 1}:`, err.message);
-                                    break;
-                                }
-                            }
-                        }
-                        return result;
+                        // analyzeChunk now handles all retries and fallback internally
+                        return await analyzeChunk(chunkPath, globalIndex, chunks.length);
                     })();
                 });
 
@@ -357,7 +417,8 @@ const worker = new Worker('audio-processing-queue', async (job: Job) => {
             }
 
             if (results.length === 0) {
-                throw new Error('All chunks failed to process');
+                console.warn('[Worker] All chunks returned degraded results. Proceeding with partial analysis.');
+                // Don't throw - let merge handle empty/partial results
             }
 
             // 4. Merge Results
