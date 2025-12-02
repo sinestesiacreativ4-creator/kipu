@@ -18,23 +18,37 @@ const router = Router();
 const upload = multer({
     storage: multer.diskStorage({
         destination: (req, file, cb) => {
-            const recordingId = req.body.recordingId;
+            let recordingId = req.body.recordingId;
 
-            // Use centralized temp folder structure
-            const chunkDir = path.join(TEMP_FOLDERS.chunks, recordingId);
-
-            // Create directory if doesn't exist
-            if (!fs.existsSync(chunkDir)) {
-                fs.mkdirSync(chunkDir, { recursive: true, mode: 0o755 });
+            // Fallback if recordingId is missing (common Multer issue with field order)
+            if (!recordingId) {
+                console.warn('[ChunkController] Warning: recordingId missing in body, using "unknown"');
+                recordingId = 'unknown';
             }
 
-            cb(null, chunkDir);
+            // Ensure TEMP_FOLDERS.chunks exists (paranoid check)
+            const baseChunkDir = TEMP_FOLDERS?.chunks || path.join(process.cwd(), 'uploads', 'chunks');
+
+            const chunkDir = path.join(baseChunkDir, recordingId);
+
+            try {
+                // Create directory if doesn't exist
+                if (!fs.existsSync(chunkDir)) {
+                    fs.mkdirSync(chunkDir, { recursive: true, mode: 0o755 });
+                }
+                cb(null, chunkDir);
+            } catch (error: any) {
+                console.error('[ChunkController] Failed to create chunk dir:', error);
+                cb(error, '');
+            }
         },
         filename: (req, file, cb) => {
-            const sequence = req.body.sequence;
+            const sequence = req.body.sequence || '0';
             // Pad sequence for correct alphabetical sorting
             const paddedSequence = String(sequence).padStart(6, '0');
-            cb(null, `chunk_${paddedSequence}.webm`);
+            // Add random suffix to prevent collisions if multiple unknowns
+            const suffix = req.body.recordingId ? '' : `-${Date.now()}`;
+            cb(null, `chunk_${paddedSequence}${suffix}.webm`);
         }
     }),
     limits: {
@@ -54,6 +68,12 @@ router.post('/upload-chunk',
 
             if (!req.file) {
                 throw createError('No chunk file uploaded', 400, 'NO_FILE');
+            }
+
+            // If recordingId was missing during upload, we might have saved it in 'unknown'
+            // But validation middleware should catch missing fields.
+            if (!recordingId) {
+                throw createError('Missing recordingId', 400, 'MISSING_FIELD');
             }
 
             console.log(`[ChunkUpload] Validated chunk ${sequence} for recording ${recordingId}`);
