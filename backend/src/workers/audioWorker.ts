@@ -37,11 +37,16 @@ const connection = new IORedis(redisUrl, redisOptions);
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
 const streamPipeline = promisify(pipeline);
 
-// Model configuration with fallback
-const PRIMARY_MODEL = "gemini-2.0-flash-exp";
-const FALLBACK_MODEL = "gemini-1.5-flash";
-const MAX_RETRIES = 5;
-const INITIAL_BACKOFF_MS = 1000; // 1 second
+// Model configuration with fallback priority
+const PRIMARY_MODEL = "gemini-2.5-flash";
+const FALLBACK_MODELS = [
+    "gemini-2.0-flash-lite",
+    "gemini-2.5-flash-lite",
+    "gemini-2.0-flash"
+];
+const MAX_RETRIES = 3;
+const INITIAL_BACKOFF_MS = 2000; // 2 seconds
+const BACKOFF_MULTIPLIER = 2;
 
 // --- HELPER FUNCTIONS ---
 
@@ -128,7 +133,7 @@ function validateAnalysis(data: any): any {
 }
 
 /**
- * Execute function with exponential backoff retry for 503 errors
+ * Execute function with exponential backoff retry for 503/429 errors
  */
 async function retryWithBackoff<T>(
     fn: () => Promise<T>,
@@ -148,7 +153,7 @@ async function retryWithBackoff<T>(
             const is429 = error.message?.includes('429') || error.status === 429;
 
             if ((is503 || is429) && attempt < maxRetries) {
-                const backoffMs = INITIAL_BACKOFF_MS * Math.pow(2, attempt);
+                const backoffMs = INITIAL_BACKOFF_MS * Math.pow(BACKOFF_MULTIPLIER, attempt);
                 console.warn(
                     `[Retry] ${operation} failed with ${is503 ? '503' : '429'}. ` +
                     `Retry ${attempt + 1}/${maxRetries} in ${backoffMs}ms`
@@ -166,15 +171,16 @@ async function retryWithBackoff<T>(
 }
 
 /**
- * Analyze a single audio chunk with robust error handling
+ * Analyze a single audio chunk with robust error handling and model fallback
  */
 async function analyzeChunk(
     chunkPath: string,
     index: number,
     total: number,
-    useFallback: boolean = false
+    fallbackIndex: number = -1
 ): Promise<any> {
-    const modelName = useFallback ? FALLBACK_MODEL : PRIMARY_MODEL;
+    // Determine which model to use
+    const modelName = fallbackIndex === -1 ? PRIMARY_MODEL : FALLBACK_MODELS[fallbackIndex];
     const model = genAI.getGenerativeModel({
         model: modelName,
         generationConfig: {
@@ -231,41 +237,59 @@ async function analyzeChunk(
     };
 
     try {
-        // Try primary model with retry
+        // Try current model with retry
         return await retryWithBackoff(
             executeAnalysis,
             `Chunk ${index + 1}/${total} with ${modelName}`
         );
-    } catch (primaryError: any) {
+    } catch (error: any) {
+        const errorMsg = error.message || String(error);
         console.error(
             `[Worker] ${modelName} failed for chunk ${index + 1}:`,
-            primaryError.message
+            errorMsg
         );
 
-        // If not already using fallback, try fallback model
-        if (!useFallback) {
-            console.warn(`[Worker] Switching to fallback model ${FALLBACK_MODEL} for chunk ${index + 1}`);
+        // Check if we have fallback models to try
+        const nextFallbackIndex = fallbackIndex + 1;
+        if (nextFallbackIndex < FALLBACK_MODELS.length) {
+            const nextModel = FALLBACK_MODELS[nextFallbackIndex];
+            console.warn(
+                `[Worker] Trying fallback model ${nextModel} (${nextFallbackIndex + 1}/${FALLBACK_MODELS.length}) for chunk ${index + 1}`
+            );
+
+            // Check if error is quota-related (429)
+            const is429 = errorMsg.includes('429') || error.status === 429;
+            if (is429) {
+                console.warn(`[Worker] Quota exceeded on ${modelName}, switching to ${nextModel}`);
+                // Add a small delay before trying next model to avoid cascading quota issues
+                await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+
             try {
-                return await analyzeChunk(chunkPath, index, total, true);
+                return await analyzeChunk(chunkPath, index, total, nextFallbackIndex);
             } catch (fallbackError: any) {
+                // Continue to next fallback or graceful degradation
                 console.error(
-                    `[Worker] Fallback model also failed for chunk ${index + 1}:`,
-                    fallbackError.message
+                    `[Worker] Fallback model ${nextModel} also failed for chunk ${index + 1}:`,
+                    fallbackError.message || String(fallbackError)
                 );
             }
         }
 
-        // Both models failed - return minimal valid structure (graceful degradation)
-        console.warn(`[Worker] Returning graceful degradation for chunk ${index + 1}`);
+        // All models failed - return graceful degradation
+        console.warn(
+            `[Worker] All models exhausted for chunk ${index + 1}. Returning graceful degradation.`
+        );
         return {
             summary: [
-                `Chunk ${index + 1}: Análisis temporalmente no disponible (API saturada). ` +
-                `Contenido procesado parcialmente.`
+                `Segmento ${index + 1}/${total}: Análisis temporalmente no disponible debido a limitaciones de API. ` +
+                `El contenido de audio fue recibido pero no pudo ser procesado completamente. ` +
+                `Por favor, intente procesar esta grabación nuevamente más tarde.`
             ],
             decisions: [],
             actionItems: [],
             participants: [],
-            keyTopics: ["Procesamiento Parcial"],
+            keyTopics: ["Procesamiento Parcial - Reintentar"],
             transcript: []
         };
     }
