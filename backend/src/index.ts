@@ -62,7 +62,11 @@ app.delete('/api/profiles/:id', DataController.deleteProfile);
 app.get('/api/recordings/:userId/:orgId', DataController.getRecordings);
 app.delete('/api/recordings/:id', DataController.deleteRecording);
 
-// 4. Health Check
+// 4. Streaming Chunk Upload
+import chunkController from './controllers/chunkController';
+app.use('/api', chunkController);
+
+// 5. Health Check
 app.get('/health', (req, res) => res.send('Audio Processing Service OK'));
 
 // 5. Init Demo Data (Temporary)
