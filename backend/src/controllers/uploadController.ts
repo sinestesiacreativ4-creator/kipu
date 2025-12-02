@@ -1,120 +1,100 @@
 import { Request, Response } from 'express';
 import { audioQueue } from '../services/queue';
-import dotenv from 'dotenv';
-import multer from 'multer';
-import IORedis from 'ioredis';
+import { createRedisClient } from '../config/redis.config';
 import prisma from '../services/prisma';
 import { GoogleAIFileManager } from '@google/generative-ai/server';
 import fs from 'fs';
-import path from 'path';
-import os from 'os';
+import { uploadConfig, handleMulterError } from '../config/upload.config';
+import { validateAudioFile } from '../services/audioValidator';
+import { TempManager } from '../services/tempManager';
+import { createError } from '../middleware/errorHandler';
 
-dotenv.config();
-
-// Redis connection
-const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
-const redisOptions: any = {
-    maxRetriesPerRequest: null,
-};
-
-if (redisUrl.startsWith('rediss://')) {
-    redisOptions.tls = {
-        rejectUnauthorized: false
-    };
-}
-
-const redis = new IORedis(redisUrl, redisOptions);
-
-// Configure Multer with Disk Storage (Prevents RAM overflow)
-const upload = multer({
-    storage: multer.diskStorage({
-        destination: os.tmpdir(),
-        filename: (req, file, cb) => {
-            const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-            cb(null, file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname));
-        }
-    }),
-    limits: {
-        fileSize: 1073741824, // 1 GB limit
-    }
-});
-
-// Initialize Gemini File Manager
+// Initialize services
+const redis = createRedisClient();
 const fileManager = new GoogleAIFileManager(process.env.GEMINI_API_KEY!);
 
-// Redis size limit (30 MB) - Files larger than this go to Gemini
+// Redis size limit (30 MB)
 const REDIS_SIZE_LIMIT = 30 * 1024 * 1024;
 
 export const UploadController = {
-    uploadMiddleware: upload.single('file'),
+    // Use robust Multer config
+    uploadMiddleware: [uploadConfig.single('file'), handleMulterError],
 
     /**
      * Producer: Upload file and enqueue for background processing
-     * Returns 202 Accepted immediately
      */
     async uploadToRedis(req: Request, res: Response) {
-        // We track the file path to ensure cleanup happens
         const filePath = req.file?.path;
 
         try {
+            // 1. Basic validation
             if (!req.file || !filePath) {
-                return res.status(400).json({ error: 'No file uploaded' });
+                throw createError('No file uploaded', 400, 'NO_FILE');
             }
 
             const { recordingId, userId, organizationId } = req.body;
+
+            if (!recordingId || !userId) {
+                throw createError('Missing required fields: recordingId, userId', 400, 'MISSING_FIELDS');
+            }
+
+            console.log(`[Producer] Processing upload for ${recordingId} (${req.file.size} bytes)`);
+
+            // 2. Audio Validation (FFprobe)
+            const validation = await validateAudioFile(filePath);
+
+            if (!validation.valid) {
+                throw createError(
+                    `Invalid audio file: ${validation.error}`,
+                    400,
+                    'INVALID_AUDIO'
+                );
+            }
+
+            // 3. Determine storage strategy
             const fileSize = req.file.size;
             const useRedis = fileSize < REDIS_SIZE_LIMIT;
-
-            console.log(`[Producer] Received file for recording ${recordingId} (${fileSize} bytes)`);
-            console.log(`[Producer] Strategy: ${useRedis ? 'Redis (fast)' : 'Gemini File API (large)'}`);
-
             let storageKey: string;
+
+            console.log(`[Producer] Strategy: ${useRedis ? 'Redis (fast)' : 'Gemini File API (large)'}`);
 
             if (useRedis) {
                 // === REDIS PATH (Fast for small files) ===
                 const fileKey = `file:${recordingId}`;
-
-                // Read from disk and save to Redis
                 const fileBuffer = fs.readFileSync(filePath);
+
                 await redis.set(fileKey, fileBuffer);
                 await redis.expire(fileKey, 86400); // 24 hours TTL
 
-                console.log(`[Producer] File stored in Redis: ${fileKey}`);
                 storageKey = fileKey;
 
-                // Cleanup temp file immediately for Redis path
-                try {
-                    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-                } catch (cleanupErr) {
-                    console.error('[Producer] Warning: Failed to cleanup temp file:', cleanupErr);
-                }
+                // Cleanup local file immediately
+                await TempManager.safeDelete(filePath);
             } else {
                 // === GEMINI FILE API PATH (For large files) ===
-                // Upload directly from the temp file on disk
                 const uploadResult = await fileManager.uploadFile(filePath, {
                     mimeType: req.file.mimetype,
-                    displayName: req.file.originalname
+                    displayName: `recording-${recordingId}`
                 });
 
                 storageKey = uploadResult.file.uri;
-                console.log(`[Producer] File uploaded to Gemini: ${storageKey}`);
 
-                // DO NOT delete temp file here! Pass to worker.
+                // Keep local file for worker fallback if needed, or rely on TempManager cleanup
             }
 
-            // Create recording in DB with PROCESSING status
+            // 4. Create DB Record
             await prisma.recording.create({
                 data: {
                     id: recordingId,
                     userId,
                     organizationId,
-                    duration: 0,
+                    duration: validation.duration || 0,
                     status: 'PROCESSING',
                     audioKey: storageKey,
                     analysis: {
-                        title: 'Esperando en cola...',
-                        category: 'Procesando',
-                        summary: ['Tu grabación está en la cola de procesamiento'],
+                        title: 'Procesando audio...',
+                        category: 'En cola',
+                        summary: ['Tu grabación está siendo analizada por nuestra IA.'],
                         actionItems: [],
                         transcript: [],
                         tags: []
@@ -122,15 +102,16 @@ export const UploadController = {
                 }
             });
 
-            // Enqueue job for background processing
+            // 5. Enqueue Job
             const job = await audioQueue.add('process-audio', {
                 [useRedis ? 'fileKey' : 'fileUri']: storageKey,
-                filePath: useRedis ? null : filePath, // Pass local path for large files
+                filePath: useRedis ? null : filePath, // Pass path for large files
                 recordingId,
                 userId,
                 organizationId,
                 mimeType: req.file.mimetype,
-                useRedis
+                useRedis,
+                duration: validation.duration
             }, {
                 attempts: 3,
                 removeOnComplete: true,
@@ -140,34 +121,31 @@ export const UploadController = {
                 }
             });
 
-            console.log(`[Producer] Job ${job.id} enqueued for recording ${recordingId}`);
-
-            // Initialize status in Redis (for polling)
+            // 6. Update Status Cache
             await redis.hset(`status:${recordingId}`, {
                 status: 'QUEUED',
                 progress: '0',
-                jobId: job.id
+                jobId: job.id,
+                timestamp: Date.now()
             });
-            await redis.expire(`status:${recordingId}`, 86400); // 24 hours TTL
+            await redis.expire(`status:${recordingId}`, 86400);
 
-            // Respond immediately with 202 Accepted
+            // 7. Respond
             res.status(202).json({
                 success: true,
-                message: 'File uploaded and queued for processing',
+                message: 'File queued for processing',
                 recordingId,
                 jobId: job.id,
-                status: 'QUEUED'
+                status: 'QUEUED',
+                duration: validation.duration
             });
 
         } catch (error: any) {
-            console.error('[Producer] Error in uploadToRedis:', error);
-
             // Cleanup on error
-            if (filePath && fs.existsSync(filePath)) {
-                try { fs.unlinkSync(filePath); } catch { }
+            if (filePath) {
+                await TempManager.safeDelete(filePath);
             }
-
-            res.status(500).json({ error: error.message });
+            throw error; // Handled by global error middleware
         }
     },
 
@@ -175,40 +153,33 @@ export const UploadController = {
      * Polling endpoint: Get processing status
      */
     async getStatus(req: Request, res: Response) {
-        try {
-            const { recordingId } = req.params;
+        const { recordingId } = req.params;
 
-            // Try to get from Redis first (real-time status)
-            const redisStatus = await redis.hgetall(`status:${recordingId}`);
+        // Try Redis first (fast path)
+        const redisStatus = await redis.hgetall(`status:${recordingId}`);
 
-            if (redisStatus && Object.keys(redisStatus).length > 0) {
-                // Parse analysis if it exists
-                if (redisStatus.analysis) {
-                    try {
-                        redisStatus.analysis = JSON.parse(redisStatus.analysis);
-                    } catch (e) {
-                        // keep as string if parse fails
-                    }
-                }
-
-                return res.json(redisStatus);
+        if (redisStatus && Object.keys(redisStatus).length > 0) {
+            // Parse nested JSON if needed
+            if (redisStatus.analysis && typeof redisStatus.analysis === 'string') {
+                try {
+                    redisStatus.analysis = JSON.parse(redisStatus.analysis);
+                } catch (e) { }
             }
-
-            // Fallback to database
-            const recording = await prisma.recording.findUnique({
-                where: { id: recordingId }
-            });
-
-            if (!recording) {
-                return res.status(404).json({ error: 'Recording not found' });
-            }
-
-            res.json({
-                status: recording.status,
-                analysis: recording.analysis
-            });
-        } catch (error: any) {
-            res.status(500).json({ error: error.message });
+            return res.json(redisStatus);
         }
+
+        // Fallback to DB (slow path)
+        const recording = await prisma.recording.findUnique({
+            where: { id: recordingId }
+        });
+
+        if (!recording) {
+            throw createError('Recording not found', 404, 'NOT_FOUND');
+        }
+
+        res.json({
+            status: recording.status,
+            analysis: recording.analysis
+        });
     }
 };

@@ -6,6 +6,9 @@ import prisma from '../services/prisma';
 import { chunkValidationMiddleware } from '../middleware/chunkValidator';
 import { processChunkInSandbox } from '../services/ffmpegSandbox';
 import { assembleRecording, ChunkMetadata } from '../services/masterAssembler';
+import { TEMP_FOLDERS } from '../config/upload.config';
+import { TempManager } from '../services/tempManager';
+import { createError } from '../middleware/errorHandler';
 
 const router = Router();
 
@@ -16,11 +19,13 @@ const upload = multer({
     storage: multer.diskStorage({
         destination: (req, file, cb) => {
             const recordingId = req.body.recordingId;
-            const chunkDir = path.join(__dirname, '../../temp_chunks', recordingId);
+
+            // Use centralized temp folder structure
+            const chunkDir = path.join(TEMP_FOLDERS.chunks, recordingId);
 
             // Create directory if doesn't exist
             if (!fs.existsSync(chunkDir)) {
-                fs.mkdirSync(chunkDir, { recursive: true });
+                fs.mkdirSync(chunkDir, { recursive: true, mode: 0o755 });
             }
 
             cb(null, chunkDir);
@@ -48,7 +53,7 @@ router.post('/upload-chunk',
             const { recordingId, sequence, mimeType } = req.body;
 
             if (!req.file) {
-                return res.status(400).json({ error: 'No chunk file uploaded' });
+                throw createError('No chunk file uploaded', 400, 'NO_FILE');
             }
 
             console.log(`[ChunkUpload] Validated chunk ${sequence} for recording ${recordingId}`);
@@ -85,7 +90,8 @@ router.post('/upload-chunk',
 
         } catch (error: any) {
             console.error('[ChunkUpload] Error:', error);
-            res.status(500).json({ error: error.message });
+            // Pass to global error handler
+            throw error;
         }
     }
 );
@@ -106,7 +112,7 @@ router.post('/finalize-recording', async (req: Request, res: Response) => {
         });
 
         if (dbChunks.length === 0) {
-            return res.status(400).json({ error: 'No chunks found for recording' });
+            throw createError('No chunks found for recording', 400, 'NO_CHUNKS');
         }
 
         console.log(`[Finalize] Found ${dbChunks.length} chunks`);
@@ -132,7 +138,7 @@ router.post('/finalize-recording', async (req: Request, res: Response) => {
         const assemblyResult = await assembleRecording(recordingId, chunkMetadata);
 
         if (!assemblyResult.success) {
-            throw new Error(assemblyResult.error || 'Assembly failed');
+            throw createError(assemblyResult.error || 'Assembly failed', 500, 'ASSEMBLY_FAILED');
         }
 
         console.log(`[Finalize] Assembly complete: ${assemblyResult.successfulChunks}/${assemblyResult.totalChunks} chunks, ${assemblyResult.holes} holes`);
@@ -152,6 +158,12 @@ router.post('/finalize-recording', async (req: Request, res: Response) => {
             where: { recordingId }
         });
 
+        // Cleanup chunk folder
+        const chunkDir = path.join(TEMP_FOLDERS.chunks, recordingId);
+        if (fs.existsSync(chunkDir)) {
+            fs.rmSync(chunkDir, { recursive: true, force: true });
+        }
+
         res.json({
             success: true,
             finalPath: assemblyResult.finalPath,
@@ -165,7 +177,7 @@ router.post('/finalize-recording', async (req: Request, res: Response) => {
 
     } catch (error: any) {
         console.error('[Finalize] Error:', error);
-        res.status(500).json({ error: error.message });
+        throw error;
     }
 });
 

@@ -4,10 +4,17 @@ import dotenv from 'dotenv';
 import { UploadController } from './controllers/uploadController';
 import { DataController } from './controllers/dataController';
 import prisma from './services/prisma';
+import { initTempFolders } from './config/upload.config';
+import { startAutoCleanup } from './services/tempManager';
+import { errorHandler, notFoundHandler } from './middleware/errorHandler';
 // Start background worker in the same process
 import './workers/audioWorker';
 
 dotenv.config();
+
+// Initialize infrastructure
+initTempFolders();
+startAutoCleanup(1); // Cleanup every hour
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -18,11 +25,10 @@ const allowedOrigins = [
     'http://localhost:3000',
     'http://localhost:5173',
     'http://localhost:5174'
-].filter(Boolean); // Remove undefined values
+].filter(Boolean);
 
 app.use(cors({
     origin: (origin, callback) => {
-        // Allow requests with no origin (like mobile apps or curl requests)
         if (!origin) return callback(null, true);
 
         if (allowedOrigins.includes(origin)) {
@@ -34,8 +40,9 @@ app.use(cors({
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization']
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-request-id']
 }));
+
 app.use(express.json({ limit: '500mb' }));
 app.use(express.urlencoded({ limit: '500mb', extended: true }));
 
@@ -48,6 +55,7 @@ app.get('/api/auth/me', AuthController.getCurrentUser);
 app.post('/api/auth/logout', AuthController.logout);
 
 // 1. Subida directa a Redis (Multipart)
+// Uses updated UploadController with robust error handling
 app.post('/api/upload-redis', UploadController.uploadMiddleware, UploadController.uploadToRedis);
 
 // 2. Consultar estado en Redis
@@ -69,7 +77,7 @@ app.use('/api', chunkController);
 // 5. Health Check
 app.get('/health', (req, res) => res.send('Audio Processing Service OK'));
 
-// 5. Init Demo Data (Temporary)
+// 6. Init Demo Data (Temporary)
 app.get('/api/init-demo-data', async (req, res) => {
     try {
         const existing = await prisma.organization.findUnique({ where: { slug: 'demo' } });
@@ -83,6 +91,12 @@ app.get('/api/init-demo-data', async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 });
+
+// 404 Handler
+app.use(notFoundHandler);
+
+// Global Error Handler (MUST be last)
+app.use(errorHandler);
 
 app.listen(PORT, () => {
     console.log(`[Server] Backend running on port ${PORT}`);
