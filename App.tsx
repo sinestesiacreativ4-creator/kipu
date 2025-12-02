@@ -185,9 +185,14 @@ const Dashboard = ({
   );
 };
 
+import LandingPage from './components/LandingPage';
+
 // --- Main App Component ---
 
 const AppContent = () => {
+  // Landing Page State
+  const [showLanding, setShowLanding] = useState(true);
+
   // No Supabase Auth - Simple org/profile based auth
   const [currentOrg, setCurrentOrg] = useState<Organization | null>(null);
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
@@ -645,6 +650,11 @@ const AppContent = () => {
   });
 
   console.log('[App] Render state:', { isLoading, currentOrg: !!currentOrg, currentUser: !!currentUser, view });
+
+  // --- Landing Page ---
+  if (showLanding) {
+    return <LandingPage onEnter={() => setShowLanding(false)} />;
+  }
 
   // --- Loading State ---
   if (isLoading) {
