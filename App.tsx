@@ -1,7 +1,7 @@
 // Version: 2.0.1 - Fixed upload functionality
 import React, { useState, useEffect } from 'react';
 import { Mic, Search, Clock, FileAudio, LogOut, Trash2, Loader2, Building2, Upload, Folder } from 'lucide-react';
-import Recorder from './components/Recorder';
+import StreamingRecorder from './components/StreamingRecorder';
 import DetailView from './components/DetailView';
 import ProfileSelector from './components/ProfileSelector';
 import AuthScreen from './components/AuthScreen';
@@ -201,8 +201,9 @@ const AppContent = () => {
   const [isLoadingRecordings, setIsLoadingRecordings] = useState(false);
   const [showIOSWarning, setShowIOSWarning] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
-  const [uploadStatus, setUploadStatus] = useState<'uploading' | 'success' | 'error' | null>(null);
+  const [uploadStatus, setUploadStatus] = useState<'uploading' | 'processing' | null>(null);
   const [processingProgress, setProcessingProgress] = useState<{ current: number, total: number } | null>(null);
+  const [activeRecordingId, setActiveRecordingId] = useState<string | null>(null); // For streaming recorder
 
   const { requestLock, releaseLock } = useWakeLock();
 
@@ -760,7 +761,31 @@ const AppContent = () => {
           <Dashboard
             recordings={recordings}
             user={currentUser}
-            onStartRecord={() => setView('recorder')}
+            onStartRecord={() => {
+              const newRecordingId = generateId();
+              setActiveRecordingId(newRecordingId);
+              // Create optimistic recording
+              const optimisticRecording: Recording = {
+                id: newRecordingId,
+                userId: currentUser.id,
+                organizationId: currentUser.organizationId,
+                audioBase64: null,
+                duration: 0,
+                createdAt: Date.now(),
+                status: RecordingStatus.PROCESSING,
+                markers: [],
+                analysis: {
+                  title: 'Grabando...',
+                  category: 'General',
+                  summary: ['Grabación en curso'],
+                  actionItems: [],
+                  transcript: [],
+                  tags: ['Nueva']
+                }
+              };
+              setRecordings(prev => [optimisticRecording, ...prev]);
+              setView('recorder');
+            }}
             onSelectRecording={(rec) => {
               setSelectedRecordingId(rec.id);
               setView('detail');
@@ -772,9 +797,66 @@ const AppContent = () => {
         )}
 
         {view === 'recorder' && (
-          <Recorder
-            onComplete={handleRecordingComplete}
-            onCancel={() => setView('dashboard')}
+          <StreamingRecorder
+            recordingId={activeRecordingId!}
+            onComplete={(recordingId) => {
+              console.log('[App] Streaming recording completed:', recordingId);
+              // Recording is already finalized on server, just poll for status
+              uploadService.pollStatus(recordingId, (status, analysis) => {
+                if (status === 'COMPLETED') {
+                  const completedRecording: Recording = {
+                    id: recordingId,
+                    userId: currentUser!.id,
+                    organizationId: currentUser!.organizationId,
+                    audioBase64: null,
+                    duration: 0, // Will be updated from backend
+                    createdAt: Date.now(),
+                    status: RecordingStatus.COMPLETED,
+                    markers: [],
+                    analysis: analysis || {
+                      title: 'Grabación Procesada',
+                      category: 'General',
+                      summary: [],
+                      actionItems: [],
+                      transcript: [],
+                      tags: []
+                    }
+                  };
+                  setRecordings(prev => prev.map(rec =>
+                    rec.id === recordingId ? completedRecording : rec
+                  ));
+                  setSelectedRecordingId(recordingId);
+                  setView('detail');
+                } else if (status === 'ERROR') {
+                  const errorRecording: Recording = {
+                    id: recordingId,
+                    userId: currentUser!.id,
+                    organizationId: currentUser!.organizationId,
+                    audioBase64: null,
+                    duration: 0,
+                    createdAt: Date.now(),
+                    status: RecordingStatus.ERROR,
+                    markers: [],
+                    analysis: {
+                      title: 'Error en Procesamiento',
+                      category: 'Error',
+                      summary: [analysis || 'Error desconocido'],
+                      actionItems: [],
+                      transcript: [],
+                      tags: ['Error']
+                    }
+                  };
+                  setRecordings(prev => prev.map(rec =>
+                    rec.id === recordingId ? errorRecording : rec
+                  ));
+                }
+              });
+              setActiveRecordingId(null);
+            }}
+            onCancel={() => {
+              setView('dashboard');
+              setActiveRecordingId(null);
+            }}
           />
         )}
 
