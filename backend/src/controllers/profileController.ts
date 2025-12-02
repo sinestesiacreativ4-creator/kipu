@@ -1,5 +1,6 @@
 import { Request, Response, Router } from 'express';
 import prisma from '../services/prisma';
+import { validateUUID } from '../middleware/validateUUID';
 
 const router = Router();
 
@@ -25,43 +26,26 @@ export const ProfileController = {
             });
 
             if (!profile) {
-                return res.status(404).json({ error: 'Profile not found' });
+                return res.status(404).json({
+                    error: 'Profile not found',
+                    message: `No profile exists with ID: ${id}`,
+                    code: 'PROFILE_NOT_FOUND'
+                });
             }
 
             res.json(profile);
         } catch (error: any) {
             console.error('[ProfileController] Error:', error);
-            res.status(500).json({ error: error.message });
-        }
-    },
-
-    /**
-     * Get all profiles for an organization
-     */
-    async getOrganizationProfiles(req: Request, res: Response) {
-        const { organizationId } = req.params;
-
-        try {
-            const profiles = await prisma.profile.findMany({
-                where: { organizationId },
-                select: {
-                    id: true,
-                    name: true,
-                    role: true,
-                    avatarColor: true
-                }
+            res.status(500).json({
+                error: 'Internal server error',
+                message: error.message,
+                code: 'INTERNAL_ERROR'
             });
-
-            res.json(profiles);
-        } catch (error: any) {
-            console.error('[ProfileController] Error:', error);
-            res.status(500).json({ error: error.message });
         }
     }
 };
 
-// Routes
-router.get('/profiles/:id', ProfileController.getProfile);
-router.get('/organizations/:organizationId/profiles', ProfileController.getOrganizationProfiles);
+// Routes with UUID validation
+router.get('/profiles/:id', validateUUID('id'), ProfileController.getProfile);
 
 export default router;

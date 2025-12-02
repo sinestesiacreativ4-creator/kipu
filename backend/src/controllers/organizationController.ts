@@ -13,7 +13,7 @@ export const OrganizationController = {
 
         try {
             const organization = await prisma.organization.findUnique({
-                where: { slug: slug.toLowerCase() }, // Ensure case-insensitive search logic if needed, but slug is usually lowercase
+                where: { slug: slug.toLowerCase() },
                 include: {
                     profiles: {
                         select: {
@@ -27,12 +27,21 @@ export const OrganizationController = {
             });
 
             if (!organization) {
-                throw createError('Organization not found', 404, 'ORG_NOT_FOUND');
+                return res.status(404).json({
+                    error: 'Organization not found',
+                    message: `No organization exists with code: ${slug}`,
+                    code: 'ORG_NOT_FOUND'
+                });
             }
 
             res.json(organization);
-        } catch (error) {
-            throw error;
+        } catch (error: any) {
+            console.error('[OrganizationController] Error:', error);
+            res.status(500).json({
+                error: 'Internal server error',
+                message: error.message,
+                code: 'INTERNAL_ERROR'
+            });
         }
     },
 
@@ -54,8 +63,13 @@ export const OrganizationController = {
             });
 
             res.json(profiles);
-        } catch (error) {
-            throw error;
+        } catch (error: any) {
+            console.error('[OrganizationController] Error:', error);
+            res.status(500).json({
+                error: 'Internal server error',
+                message: error.message,
+                code: 'INTERNAL_ERROR'
+            });
         }
     }
 };

@@ -1,6 +1,6 @@
 import { Request, Response, Router } from 'express';
 import prisma from '../services/prisma';
-import { createError } from '../middleware/errorHandler';
+import { validateUUID } from '../middleware/validateUUID';
 
 const router = Router();
 
@@ -10,7 +10,7 @@ export const RecordingController = {
      */
     async getRecordings(req: Request, res: Response) {
         const { sessionId, recordingId } = req.params;
-
+        
         // sessionId is actually organizationId in the current frontend implementation
         const organizationId = sessionId;
 
@@ -32,7 +32,11 @@ export const RecordingController = {
                 });
 
                 if (!recording) {
-                    return res.status(404).json({ error: 'Recording not found' });
+                    return res.status(404).json({
+                        error: 'Recording not found',
+                        message: `No recording exists with ID: ${recordingId}`,
+                        code: 'RECORDING_NOT_FOUND'
+                    });
                 }
 
                 return res.json(recording);
@@ -58,7 +62,11 @@ export const RecordingController = {
             res.json(recordings);
         } catch (error: any) {
             console.error('[RecordingController] Error:', error);
-            res.status(500).json({ error: error.message });
+            res.status(500).json({
+                error: 'Internal server error',
+                message: error.message,
+                code: 'INTERNAL_ERROR'
+            });
         }
     },
 
@@ -76,13 +84,26 @@ export const RecordingController = {
             res.json({ success: true, message: 'Recording deleted' });
         } catch (error: any) {
             console.error('[RecordingController] Delete error:', error);
-            res.status(500).json({ error: error.message });
+            
+            if (error.code === 'P2025') {
+                return res.status(404).json({
+                    error: 'Recording not found',
+                    message: 'Cannot delete: recording does not exist',
+                    code: 'RECORDING_NOT_FOUND'
+                });
+            }
+            
+            res.status(500).json({
+                error: 'Internal server error',
+                message: error.message,
+                code: 'INTERNAL_ERROR'
+            });
         }
     }
 };
 
 // Routes
 router.get('/recordings/:sessionId/:recordingId?', RecordingController.getRecordings);
-router.delete('/recordings/:recordingId', RecordingController.deleteRecording);
+router.delete('/recordings/:recordingId', validateUUID('recordingId'), RecordingController.deleteRecording);
 
 export default router;
