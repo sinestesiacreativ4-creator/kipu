@@ -2,53 +2,64 @@ import { Router, Request, Response } from 'express';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
+import os from 'os'; // Import os directly
 import prisma from '../services/prisma';
 import { chunkValidationMiddleware } from '../middleware/chunkValidator';
 import { processChunkInSandbox } from '../services/ffmpegSandbox';
 import { assembleRecording, ChunkMetadata } from '../services/masterAssembler';
 import { TEMP_FOLDERS } from '../config/upload.config';
-import { TempManager } from '../services/tempManager';
 import { createError } from '../middleware/errorHandler';
 
 const router = Router();
 
 // ============================================
-// MULTER STORAGE (Temporary chunk storage)
+// DEFENSIVE MULTER CONFIG
 // ============================================
 const upload = multer({
     storage: multer.diskStorage({
         destination: (req, file, cb) => {
-            let recordingId = req.body.recordingId;
-
-            // Fallback if recordingId is missing (common Multer issue with field order)
-            if (!recordingId) {
-                console.warn('[ChunkController] Warning: recordingId missing in body, using "unknown"');
-                recordingId = 'unknown';
-            }
-
-            // Ensure TEMP_FOLDERS.chunks exists (paranoid check)
-            const baseChunkDir = TEMP_FOLDERS?.chunks || path.join(process.cwd(), 'uploads', 'chunks');
-
-            const chunkDir = path.join(baseChunkDir, recordingId);
-
             try {
-                // Create directory if doesn't exist
+                // 1. Safe Recording ID
+                let recordingId = req.body.recordingId;
+                if (!recordingId || typeof recordingId !== 'string') {
+                    console.warn('[ChunkController] ⚠️ Missing or invalid recordingId, defaulting to "unknown"');
+                    recordingId = 'unknown';
+                }
+
+                // 2. Safe Base Directory
+                // Try imported config, fallback to os.tmpdir() hardcoded path
+                let baseDir = TEMP_FOLDERS?.chunks;
+
+                if (!baseDir || typeof baseDir !== 'string') {
+                    console.warn('[ChunkController] ⚠️ TEMP_FOLDERS.chunks is undefined! Using fallback.');
+                    baseDir = path.join(os.tmpdir(), 'kipu-audio', 'chunks');
+                }
+
+                // 3. Construct Path (Guaranteed strings)
+                const chunkDir = path.join(baseDir, recordingId);
+
+                // 4. Create Directory
                 if (!fs.existsSync(chunkDir)) {
                     fs.mkdirSync(chunkDir, { recursive: true, mode: 0o755 });
                 }
+
                 cb(null, chunkDir);
             } catch (error: any) {
-                console.error('[ChunkController] Failed to create chunk dir:', error);
-                cb(error, '');
+                console.error('[ChunkController] 🔴 CRITICAL DESTINATION ERROR:', error);
+                // Fallback to strict temp dir to prevent crash
+                cb(null, os.tmpdir());
             }
         },
         filename: (req, file, cb) => {
-            const sequence = req.body.sequence || '0';
-            // Pad sequence for correct alphabetical sorting
-            const paddedSequence = String(sequence).padStart(6, '0');
-            // Add random suffix to prevent collisions if multiple unknowns
-            const suffix = req.body.recordingId ? '' : `-${Date.now()}`;
-            cb(null, `chunk_${paddedSequence}${suffix}.webm`);
+            try {
+                const sequence = req.body.sequence || '0';
+                const paddedSequence = String(sequence).padStart(6, '0');
+                // Ensure filename is safe
+                const safeFilename = `chunk_${paddedSequence}.webm`.replace(/[^a-zA-Z0-9._-]/g, '');
+                cb(null, safeFilename);
+            } catch (error) {
+                cb(null, `fallback-${Date.now()}.webm`);
+            }
         }
     }),
     limits: {
@@ -57,39 +68,30 @@ const upload = multer({
 });
 
 // ============================================
-// UPLOAD CHUNK ENDPOINT (with validation)
+// UPLOAD CHUNK ENDPOINT
 // ============================================
 router.post('/upload-chunk',
     upload.single('chunk'),
-    chunkValidationMiddleware, // Module 1: Validate and repair
+    chunkValidationMiddleware,
     async (req: Request, res: Response) => {
         try {
+            // Re-validate recordingId here since we allowed 'unknown' in Multer
             const { recordingId, sequence, mimeType } = req.body;
+
+            if (!recordingId || recordingId === 'unknown') {
+                // If we saved to 'unknown', we should probably clean it up or reject
+                throw createError('Missing valid recordingId', 400, 'MISSING_FIELD');
+            }
 
             if (!req.file) {
                 throw createError('No chunk file uploaded', 400, 'NO_FILE');
             }
 
-            // If recordingId was missing during upload, we might have saved it in 'unknown'
-            // But validation middleware should catch missing fields.
-            if (!recordingId) {
-                throw createError('Missing recordingId', 400, 'MISSING_FIELD');
-            }
+            console.log(`[ChunkUpload] Processing chunk ${sequence} for ${recordingId}`);
 
-            console.log(`[ChunkUpload] Validated chunk ${sequence} for recording ${recordingId}`);
-
-            // Process chunk in sandbox immediately after upload
-            // Module 3: FFmpeg Sandbox
             const processResult = await processChunkInSandbox(req.file.path);
-
-            const chunkStatus = processResult.success ? 'ok' : 'hole';
             const finalPath = processResult.success ? processResult.outputPath : req.file.path;
 
-            if (!processResult.success) {
-                console.warn(`[ChunkUpload] Chunk ${sequence} failed processing: ${processResult.error}`);
-            }
-
-            // Track chunk in database with processing status
             await prisma.recordingChunk.create({
                 data: {
                     recordingId,
@@ -103,67 +105,50 @@ router.post('/upload-chunk',
             res.json({
                 success: true,
                 sequence: parseInt(sequence),
-                size: req.file.size,
-                processed: processResult.success,
-                status: chunkStatus
+                processed: processResult.success
             });
 
         } catch (error: any) {
             console.error('[ChunkUpload] Error:', error);
-            // Pass to global error handler
             throw error;
         }
     }
 );
 
 // ============================================
-// FINALIZE RECORDING (Master Assembler)
+// FINALIZE RECORDING
 // ============================================
 router.post('/finalize-recording', async (req: Request, res: Response) => {
     const { recordingId } = req.body;
 
     try {
-        console.log(`[Finalize] Starting robust assembly for recording ${recordingId}...`);
+        console.log(`[Finalize] Assembly requested for ${recordingId}`);
 
-        // Get all chunks ordered by sequence
         const dbChunks = await prisma.recordingChunk.findMany({
             where: { recordingId },
             orderBy: { sequence: 'asc' }
         });
 
         if (dbChunks.length === 0) {
-            throw createError('No chunks found for recording', 400, 'NO_CHUNKS');
+            throw createError('No chunks found', 400, 'NO_CHUNKS');
         }
 
-        console.log(`[Finalize] Found ${dbChunks.length} chunks`);
+        const chunkMetadata: ChunkMetadata[] = dbChunks.map(chunk => ({
+            chunk_id: chunk.id,
+            sequence: chunk.sequence,
+            status: fs.existsSync(chunk.filePath) ? 'ok' : 'hole',
+            duration: 10,
+            worker_id: 0,
+            file_path: chunk.filePath,
+            timestamp: chunk.createdAt.getTime()
+        }));
 
-        // Convert to ChunkMetadata format
-        const chunkMetadata: ChunkMetadata[] = dbChunks.map(chunk => {
-            const fileExists = fs.existsSync(chunk.filePath);
-            const status: 'ok' | 'hole' = fileExists && chunk.filePath.includes('_processed.wav') ? 'ok' : 'hole';
-
-            return {
-                chunk_id: chunk.id,
-                sequence: chunk.sequence,
-                status,
-                duration: 10, // Approximate 10s per chunk
-                worker_id: 0,
-                file_path: fileExists ? chunk.filePath : undefined,
-                error: fileExists ? undefined : 'File not found',
-                timestamp: chunk.createdAt.getTime()
-            };
-        });
-
-        // Module 4: Master Assembler
         const assemblyResult = await assembleRecording(recordingId, chunkMetadata);
 
         if (!assemblyResult.success) {
             throw createError(assemblyResult.error || 'Assembly failed', 500, 'ASSEMBLY_FAILED');
         }
 
-        console.log(`[Finalize] Assembly complete: ${assemblyResult.successfulChunks}/${assemblyResult.totalChunks} chunks, ${assemblyResult.holes} holes`);
-
-        // Update recording in database
         await prisma.recording.update({
             where: { id: recordingId },
             data: {
@@ -173,13 +158,10 @@ router.post('/finalize-recording', async (req: Request, res: Response) => {
             }
         });
 
-        // Delete chunk records
-        await prisma.recordingChunk.deleteMany({
-            where: { recordingId }
-        });
+        await prisma.recordingChunk.deleteMany({ where: { recordingId } });
 
-        // Cleanup chunk folder
-        const chunkDir = path.join(TEMP_FOLDERS.chunks, recordingId);
+        // Cleanup
+        const chunkDir = path.join(TEMP_FOLDERS?.chunks || path.join(os.tmpdir(), 'kipu-audio', 'chunks'), recordingId);
         if (fs.existsSync(chunkDir)) {
             fs.rmSync(chunkDir, { recursive: true, force: true });
         }
@@ -187,12 +169,7 @@ router.post('/finalize-recording', async (req: Request, res: Response) => {
         res.json({
             success: true,
             finalPath: assemblyResult.finalPath,
-            totalChunks: assemblyResult.totalChunks,
-            successfulChunks: assemblyResult.successfulChunks,
-            holes: assemblyResult.holes,
-            holeSequences: assemblyResult.holeSequences,
-            duration: assemblyResult.totalDuration,
-            metadataPath: assemblyResult.metadataPath
+            duration: assemblyResult.totalDuration
         });
 
     } catch (error: any) {
