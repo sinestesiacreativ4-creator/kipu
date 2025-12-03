@@ -20,12 +20,23 @@ export const simpleRecorder = {
         this.chunkSequence = 0;
 
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({
-                audio: {
-                    echoCancellation: true,
-                    noiseSuppression: true
-                }
-            });
+            let stream: MediaStream;
+            try {
+                // Try with advanced constraints first
+                stream = await navigator.mediaDevices.getUserMedia({
+                    audio: {
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        autoGainControl: true
+                    }
+                });
+            } catch (err) {
+                console.warn('[SimpleRecorder] Advanced constraints failed, trying basic audio:', err);
+                // Fallback to basic audio if advanced constraints fail (common on some iOS/Android devices)
+                stream = await navigator.mediaDevices.getUserMedia({
+                    audio: true
+                });
+            }
             this.stream = stream;
 
             // Prefer webm/opus

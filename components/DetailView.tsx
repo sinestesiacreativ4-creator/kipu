@@ -367,15 +367,21 @@ const DetailView: React.FC<DetailViewProps> = ({ recording, onBack, onReanalyze 
           {/* Transcript Tab Content */}
           <div className={`${activeTab === 'transcript' ? 'block' : 'hidden'} print:block animate-fade-in`}>
             <div className="bg-white dark:bg-stone-800 rounded-xl shadow-sm border border-stone-100 dark:border-stone-700 divide-y divide-stone-100 dark:divide-stone-700">
-              {analysis.transcript.map((segment, idx) => (
-                <div key={idx} className="p-4 hover:bg-stone-50 dark:hover:bg-stone-700/30 transition-colors group">
-                  <div className="flex justify-between items-baseline mb-1">
-                    <span className="font-semibold text-sm text-secondary">{segment.speaker}</span>
-                    <span className="text-xs text-stone-400 font-mono group-hover:text-stone-600">{segment.timestamp}</span>
+              {analysis.transcript.length > 0 ? (
+                analysis.transcript.map((segment, idx) => (
+                  <div key={idx} className="p-4 hover:bg-stone-50 dark:hover:bg-stone-700/30 transition-colors group">
+                    <div className="flex justify-between items-baseline mb-1">
+                      <span className="font-semibold text-sm text-secondary">{segment.speaker}</span>
+                      <span className="text-xs text-stone-400 font-mono group-hover:text-stone-600">{segment.timestamp}</span>
+                    </div>
+                    <p className="text-stone-700 dark:text-stone-300 leading-relaxed">{segment.text}</p>
                   </div>
-                  <p className="text-stone-700 dark:text-stone-300 leading-relaxed">{segment.text}</p>
+                ))
+              ) : (
+                <div className="p-8 text-center text-stone-500 italic">
+                  No se generó transcripción. El audio podría ser demasiado corto o no contener diálogo claro.
                 </div>
-              ))}
+              )}
             </div>
           </div>
 
