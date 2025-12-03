@@ -129,16 +129,71 @@ const StreamingRecorder: React.FC<StreamingRecorderProps> = ({
         }
     };
 
+    const [silenceWarning, setSilenceWarning] = useState(false);
+
+    // Silence detection
+    useEffect(() => {
+        if (!stream || status !== RecordingStatus.RECORDING) return;
+
+        let audioContext: AudioContext;
+        let animationFrame: number;
+
+        const initAudio = async () => {
+            audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+            const source = audioContext.createMediaStreamSource(stream);
+            const analyser = audioContext.createAnalyser();
+            analyser.fftSize = 256;
+            source.connect(analyser);
+
+            const dataArray = new Uint8Array(analyser.frequencyBinCount);
+            let silenceStart = Date.now();
+
+            const checkSilence = () => {
+                analyser.getByteFrequencyData(dataArray);
+                const sum = dataArray.reduce((a, b) => a + b, 0);
+                const average = sum / dataArray.length;
+
+                // Threshold 5 seems reasonable for "dead silence" vs background noise
+                if (average < 5) {
+                    if (Date.now() - silenceStart > 5000) { // 5 seconds of silence
+                        setSilenceWarning(true);
+                    }
+                } else {
+                    silenceStart = Date.now();
+                    setSilenceWarning(false);
+                }
+
+                animationFrame = requestAnimationFrame(checkSilence);
+            };
+
+            checkSilence();
+        };
+
+        initAudio();
+
+        return () => {
+            if (animationFrame) cancelAnimationFrame(animationFrame);
+            if (audioContext) audioContext.close();
+        };
+    }, [stream, status]);
+
     return (
         <div className="flex flex-col items-center justify-center min-h-[60vh] w-full max-w-3xl mx-auto p-6 animate-fade-in">
             {/* Visual Recording Indicator */}
             {status === RecordingStatus.RECORDING && (
-                <div className="mb-4 flex items-center gap-3">
-                    <div className="relative">
-                        <div className="w-4 h-4 bg-red-500 rounded-full animate-pulse"></div>
-                        <div className="absolute inset-0 w-4 h-4 bg-red-500 rounded-full animate-ping opacity-75"></div>
+                <div className="mb-4 flex flex-col items-center gap-2">
+                    <div className="flex items-center gap-3">
+                        <div className="relative">
+                            <div className="w-4 h-4 bg-red-500 rounded-full animate-pulse"></div>
+                            <div className="absolute inset-0 w-4 h-4 bg-red-500 rounded-full animate-ping opacity-75"></div>
+                        </div>
+                        <span className="text-red-500 font-semibold text-lg">REC</span>
                     </div>
-                    <span className="text-red-500 font-semibold text-lg">REC</span>
+                    {silenceWarning && (
+                        <div className="bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-200 px-4 py-2 rounded-lg text-sm font-medium animate-bounce">
+                            ⚠️ No se detecta audio. Verifica tu micrófono.
+                        </div>
+                    )}
                 </div>
             )}
 
