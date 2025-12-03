@@ -357,6 +357,8 @@ async function analyzeChunk(
  * Merge analysis results and generate intelligent summary
  */
 function mergeAnalyses(results: any[]): any {
+    console.log(`[Worker] Merging ${results.length} analysis results`);
+
     const merged = {
         title: "",
         category: "General",
@@ -372,6 +374,13 @@ function mergeAnalyses(results: any[]): any {
 
     // Consolidate all fields from chunks
     results.forEach((res, index) => {
+        console.log(`[Worker] Processing result ${index + 1}:`, {
+            hasTranscript: !!res.transcript,
+            transcriptLength: res.transcript?.length || 0,
+            hasSummary: !!res.summary,
+            summaryLength: res.summary?.length || 0
+        });
+
         if (res.summary) merged.summary.push(...res.summary);
         if (res.decisions) merged.decisions.push(...res.decisions);
         if (res.actionItems) merged.actionItems.push(...res.actionItems);
@@ -385,6 +394,12 @@ function mergeAnalyses(results: any[]): any {
                 segment: index + 1
             })));
         }
+    });
+
+    console.log(`[Worker] Merge complete:`, {
+        totalTranscriptSegments: merged.transcript.length,
+        totalSummaryPoints: merged.summary.length,
+        totalParticipants: merged.participants.length
     });
 
     // Deduplicate arrays
