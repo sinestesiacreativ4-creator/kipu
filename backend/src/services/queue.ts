@@ -16,10 +16,10 @@ if (redisUrl.startsWith('rediss://')) {
     };
 }
 
-const connection = new IORedis(redisUrl, redisOptions);
+export const redisConnection = new IORedis(redisUrl, redisOptions);
 
 // Definición de la Cola
-export const audioQueue = new Queue('audio-processing-queue', { connection });
+export const audioQueue = new Queue('audio-processing-queue', { connection: redisConnection });
 
 // Tipos de trabajos
 export interface AudioJobData {

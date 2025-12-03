@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import prisma from '../services/prisma';
+import { redisConnection } from '../services/queue';
 
 const router = Router();
 
@@ -11,6 +12,31 @@ router.get('/status/:recordingId', async (req: Request, res: Response) => {
     try {
         const { recordingId } = req.params;
 
+        // 1. Try Redis first (Real-time status)
+        const redisKey = `status:${recordingId}`;
+        const redisData = await redisConnection.hgetall(redisKey);
+
+        if (redisData && redisData.status) {
+            // Parse analysis if present
+            let analysis = null;
+            if (redisData.analysis) {
+                try {
+                    analysis = JSON.parse(redisData.analysis);
+                } catch (e) {
+                    console.warn('[StatusEndpoint] Failed to parse Redis analysis JSON');
+                }
+            }
+
+            return res.json({
+                status: redisData.status,
+                recordingId,
+                analysis,
+                error: redisData.error,
+                progress: redisData.progress ? parseInt(redisData.progress) : undefined
+            });
+        }
+
+        // 2. Fallback to Database
         const recording = await prisma.recording.findUnique({
             where: { id: recordingId }
         });
