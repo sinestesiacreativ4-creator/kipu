@@ -3,7 +3,6 @@ import fs from 'fs';
 import path from 'path';
 import prisma from '../services/prisma';
 import { TEMP_FOLDERS } from '../config/upload.config';
-import { assembleRecording, ChunkMetadata } from '../services/masterAssembler';
 import { createError } from '../middleware/errorHandler';
 import { audioQueue } from '../services/queue';
 import ffmpeg from 'fluent-ffmpeg';
@@ -13,6 +12,30 @@ import ffmpegPath from 'ffmpeg-static';
 if (ffmpegPath) {
     ffmpeg.setFfmpegPath(ffmpegPath);
 }
+
+// Helper: Validate chunk sequence completeness
+const validateChunkSequence = (chunks: any[]) => {
+    if (chunks.length === 0) return { valid: false, missing: [] };
+
+    const sorted = chunks.sort((a, b) => a.sequence - b.sequence);
+    const missing: number[] = [];
+
+    // Check for gaps from 0 to N
+    for (let i = 0; i < sorted.length; i++) {
+        if (sorted[i].sequence !== i) {
+            // Found a gap
+            for (let j = (i > 0 ? sorted[i - 1].sequence + 1 : 0); j < sorted[i].sequence; j++) {
+                missing.push(j);
+            }
+        }
+    }
+
+    return {
+        valid: missing.length === 0 && sorted[0].sequence === 0,
+        missing,
+        maxSequence: sorted[sorted.length - 1].sequence
+    };
+};
 
 export const SimpleChunkController = {
     /**
@@ -26,7 +49,7 @@ export const SimpleChunkController = {
             const { recordingId } = req.params;
             const chunkIndex = req.headers['x-chunk-index'];
 
-            if (!recordingId || !chunkIndex) {
+            if (!recordingId || chunkIndex === undefined) {
                 throw createError('Missing recordingId or x-chunk-index', 400, 'MISSING_METADATA');
             }
 
@@ -35,13 +58,15 @@ export const SimpleChunkController = {
                 throw createError('Invalid chunk index', 400, 'INVALID_METADATA');
             }
 
+            console.log(`[ChunkUpload] Receiving chunk ${sequence} for ${recordingId}`);
+
             // 1. Ensure directory exists
             const chunkDir = path.join(TEMP_FOLDERS.chunks, recordingId);
             if (!fs.existsSync(chunkDir)) {
                 fs.mkdirSync(chunkDir, { recursive: true });
             }
 
-            // 2. Write raw body to file
+            // 2. Determine file path
             const contentType = req.headers['content-type'] || 'video/webm';
             let ext = '.webm';
             if (contentType.includes('mp4') || contentType.includes('m4a')) ext = '.mp4';
@@ -51,24 +76,22 @@ export const SimpleChunkController = {
             const filename = `chunk_${String(sequence).padStart(6, '0')}${ext}`;
             const filePath = path.join(chunkDir, filename);
 
-            // req.body is a Buffer because we use express.raw() in index.ts
+            // 3. Write file (Idempotent: overwrite if exists)
             fs.writeFileSync(filePath, req.body);
+            console.log(`[ChunkUpload] Saved file ${filename} (${req.body.length} bytes)`);
 
-            console.log(`[SimpleUpload] Saved chunk ${sequence} for ${recordingId} (${req.body.length} bytes)`);
-
-            // 3. Auto-create Recording if missing (Foreign Key Fix)
+            // 4. Auto-create Recording if missing (Sequence 0)
             if (sequence === 0) {
                 const existing = await prisma.recording.findUnique({ where: { id: recordingId } });
                 if (!existing) {
-                    // Get IDs from headers or fallback
                     const userId = req.headers['x-user-id'] as string;
                     const organizationId = req.headers['x-organization-id'] as string;
 
+                    // Fallback to default profile/org if headers missing (Dev/Test mode)
                     let targetUserId = userId;
                     let targetOrgId = organizationId;
 
                     if (!targetUserId || !targetOrgId) {
-                        console.warn(`[SimpleUpload] Missing user/org headers for ${recordingId}. Falling back to defaults.`);
                         const defaultProfile = await prisma.profile.findFirst();
                         const defaultOrg = await prisma.organization.findFirst();
                         if (defaultProfile) targetUserId = defaultProfile.id;
@@ -85,28 +108,47 @@ export const SimpleChunkController = {
                                 duration: 0
                             }
                         });
-                        console.log(`[SimpleUpload] Created recording ${recordingId} for user ${targetUserId}`);
-                    } else {
-                        console.error(`[SimpleUpload] Failed to create recording: No user/org found`);
+                        console.log(`[ChunkUpload] Created new recording ${recordingId}`);
                     }
                 }
             }
 
-            // 4. Register chunk in DB
-            await prisma.recordingChunk.create({
-                data: {
-                    recordingId,
-                    sequence,
-                    filePath,
-                    size: req.body.length,
-                    mimeType: contentType
+            // 5. Register in DB (Handle duplicates gracefully)
+            const existingChunk = await prisma.recordingChunk.findUnique({
+                where: {
+                    recordingId_sequence: {
+                        recordingId,
+                        sequence
+                    }
                 }
             });
+
+            if (!existingChunk) {
+                await prisma.recordingChunk.create({
+                    data: {
+                        recordingId,
+                        sequence,
+                        filePath,
+                        size: req.body.length,
+                        mimeType: contentType
+                    }
+                });
+            } else {
+                // Update existing chunk info if needed
+                await prisma.recordingChunk.update({
+                    where: { id: existingChunk.id },
+                    data: {
+                        size: req.body.length,
+                        filePath // Ensure path is correct
+                    }
+                });
+                console.log(`[ChunkUpload] Updated existing chunk ${sequence}`);
+            }
 
             res.json({ success: true, sequence });
 
         } catch (error: any) {
-            console.error('[SimpleUpload] Error:', error);
+            console.error('[ChunkUpload] Error:', error);
             res.status(500).json({ error: error.message });
         }
     },
@@ -118,91 +160,72 @@ export const SimpleChunkController = {
     async finalize(req: Request, res: Response) {
         try {
             const { recordingId } = req.params;
-            console.log(`[SimpleFinalize] Finalizing ${recordingId}`);
+            console.log(`[Finalize] Starting finalization for ${recordingId}`);
 
-            // 1. Get all chunks from DB
+            // 1. Get all chunks
             const chunks = await prisma.recordingChunk.findMany({
                 where: { recordingId },
                 orderBy: { sequence: 'asc' }
             });
 
             if (chunks.length === 0) {
-                return res.status(400).json({
-                    error: 'No chunks found',
-                    code: 'NO_CHUNKS'
-                });
+                return res.status(400).json({ error: 'No chunks found', code: 'NO_CHUNKS' });
             }
 
-            console.log(`[SimpleFinalize] Found ${chunks.length} chunks`);
-
-            // 2. Concatenate chunks (simple binary concat - webm supports this)
-            const chunkBuffers: Buffer[] = [];
-            let totalSize = 0;
-
-            for (const chunk of chunks) {
-                if (fs.existsSync(chunk.filePath)) {
-                    const buffer = fs.readFileSync(chunk.filePath);
-                    chunkBuffers.push(buffer);
-                    totalSize += buffer.length;
-                } else {
-                    console.warn(`[SimpleFinalize] Chunk file missing: ${chunk.filePath}`);
-                }
+            // 2. Validate Sequence
+            const validation = validateChunkSequence(chunks);
+            if (!validation.valid) {
+                console.warn(`[Finalize] Missing chunks for ${recordingId}:`, validation.missing);
+                // In a strict system, we might return error. 
+                // Here we'll proceed but log a warning, as we want to save whatever we have.
+                // Ideally, frontend should ensure completeness.
             }
 
-            if (chunkBuffers.length === 0) {
-                throw new Error('No chunk files found on disk');
-            }
+            console.log(`[Finalize] Assembling ${chunks.length} chunks (Max Seq: ${validation.maxSequence})`);
 
-            // 3. Create concatenated file
-            // Check if we have non-webm files (need ffmpeg)
+            // 3. Prepare for FFmpeg Concatenation
+            const chunkDir = path.join(TEMP_FOLDERS.chunks, recordingId);
+            const listPath = path.join(chunkDir, 'files.txt');
+
+            // Generate ffmpeg file list
+            const fileListContent = chunks
+                .map(c => `file '${c.filePath.replace(/\\/g, '/')}'`)
+                .join('\n');
+
+            fs.writeFileSync(listPath, fileListContent);
+
+            // Determine output format
             const hasNonWebm = chunks.some(c => !c.mimeType.includes('webm'));
             const outputExt = hasNonWebm ? '.mp4' : '.webm';
             const finalFilename = `${recordingId}_final${outputExt}`;
             const finalPath = path.join(TEMP_FOLDERS.merged, finalFilename);
 
-            // Ensure merged directory exists
+            // Ensure merged dir exists
             if (!fs.existsSync(TEMP_FOLDERS.merged)) {
                 fs.mkdirSync(TEMP_FOLDERS.merged, { recursive: true });
             }
 
-            if (hasNonWebm) {
-                console.log(`[SimpleFinalize] Detected non-webm chunks. Using ffmpeg for concatenation.`);
+            // 4. Execute FFmpeg Concat
+            console.log(`[Finalize] Running FFmpeg concat...`);
+            await new Promise<void>((resolve, reject) => {
+                ffmpeg()
+                    .input(listPath)
+                    .inputOptions(['-f', 'concat', '-safe', '0'])
+                    .outputOptions(['-c', 'copy']) // Stream copy for speed/quality
+                    .save(finalPath)
+                    .on('end', () => resolve())
+                    .on('error', (err) => {
+                        console.error('[Finalize] FFmpeg error:', err);
+                        reject(err);
+                    });
+            });
 
-                // Create a file list for ffmpeg
-                const listPath = path.join(TEMP_FOLDERS.chunks, recordingId, 'files.txt');
-                const fileListContent = chunks
-                    .map(c => `file '${c.filePath.replace(/\\/g, '/')}'`)
-                    .join('\n');
+            // 5. Verify Output
+            const stats = fs.statSync(finalPath);
+            console.log(`[Finalize] Assembly complete: ${finalPath} (${stats.size} bytes)`);
 
-                fs.writeFileSync(listPath, fileListContent);
-
-                await new Promise<void>((resolve, reject) => {
-                    ffmpeg()
-                        .input(listPath)
-                        .inputOptions(['-f', 'concat', '-safe', '0'])
-                        .outputOptions(['-c', 'copy'])
-                        .save(finalPath)
-                        .on('end', () => resolve())
-                        .on('error', (err) => reject(err));
-                });
-
-                // Update total size from generated file
-                const stats = fs.statSync(finalPath);
-                totalSize = stats.size;
-
-            } else {
-                // Write concatenated file (Binary concat for WebM)
-                const finalBuffer = Buffer.concat(chunkBuffers);
-                fs.writeFileSync(finalPath, finalBuffer);
-                totalSize = finalBuffer.length;
-            }
-
-            console.log(`[SimpleFinalize] Assembled ${chunks.length} chunks into ${finalPath} (${totalSize} bytes)`);
-
-            // 4. Estimate duration (5 seconds per chunk)
-            const estimatedDuration = chunks.length * 5;
-
-            // 5. Update Recording
+            // 6. Update Recording Status
+            const estimatedDuration = chunks.length * 5; // Rough estimate
             await prisma.recording.update({
                 where: { id: recordingId },
                 data: {
@@ -212,24 +235,29 @@ export const SimpleChunkController = {
                 }
             });
 
-            // 6. Enqueue AI processing job
-            console.log(`[SimpleFinalize] Enqueuing AI processing for ${recordingId}`);
+            // 7. Enqueue Job
             await audioQueue.add('process-audio', {
                 recordingId,
-                filePath: finalPath
+                filePath: finalPath,
+                mimeType: hasNonWebm ? 'video/mp4' : 'video/webm'
             });
 
-            // 7. Cleanup chunks
+            // 8. Cleanup
+            // We keep chunks briefly for debugging if needed, or delete now.
+            // Let's delete to save space.
             await prisma.recordingChunk.deleteMany({ where: { recordingId } });
-            const chunkDir = path.join(TEMP_FOLDERS.chunks, recordingId);
             if (fs.existsSync(chunkDir)) {
                 fs.rmSync(chunkDir, { recursive: true, force: true });
             }
 
-            res.json({ success: true, path: finalPath, duration: estimatedDuration });
+            res.json({
+                success: true,
+                path: finalPath,
+                chunksProcessed: chunks.length
+            });
 
         } catch (error: any) {
-            console.error('[SimpleFinalize] Error:', error);
+            console.error('[Finalize] Error:', error);
             res.status(500).json({ error: error.message });
         }
     }

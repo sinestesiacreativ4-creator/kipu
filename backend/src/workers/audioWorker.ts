@@ -54,8 +54,9 @@ const BACKOFF_MULTIPLIER = 2;
 
 /**
  * Split audio file into chunks
+ * Optimized: 45s chunks for better context/token balance
  */
-async function splitAudio(filePath: string, chunkDurationSec: number = 120): Promise<string[]> {
+async function splitAudio(filePath: string, chunkDurationSec: number = 45): Promise<string[]> {
     return new Promise((resolve, reject) => {
         // Create a dedicated temp directory for chunks to avoid path issues
         const baseName = path.basename(filePath, path.extname(filePath));
@@ -68,7 +69,7 @@ async function splitAudio(filePath: string, chunkDurationSec: number = 120): Pro
         // Simple pattern: chunk_%03d.ext
         const outputPattern = path.join(chunkDir, `chunk_%03d${path.extname(filePath)}`);
 
-        console.log(`[Worker] Splitting to: ${outputPattern}`);
+        console.log(`[Worker] Splitting to: ${outputPattern} (Duration: ${chunkDurationSec}s)`);
 
         ffmpeg(filePath)
             .outputOptions([
@@ -141,12 +142,14 @@ function extractJSON(text: string): any {
  */
 function validateAnalysis(data: any): any {
     return {
+        title: data.title || "",
         summary: Array.isArray(data.summary) ? data.summary : [],
         decisions: Array.isArray(data.decisions) ? data.decisions : [],
         actionItems: Array.isArray(data.actionItems) ? data.actionItems : [],
         participants: Array.isArray(data.participants) ? data.participants : [],
         keyTopics: Array.isArray(data.keyTopics) ? data.keyTopics : [],
-        transcript: Array.isArray(data.transcript) ? data.transcript : []
+        transcript: Array.isArray(data.transcript) ? data.transcript : [],
+        tags: Array.isArray(data.tags) ? data.tags : []
     };
 }
 
