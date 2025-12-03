@@ -65,7 +65,7 @@ export const SimpleChunkController = {
             }
 
             // 4. Register chunk in DB
-            await prisma.RecordingChunk.create({
+            await prisma.recordingChunk.create({
                 data: {
                     recordingId,
                     sequence,
@@ -93,7 +93,7 @@ export const SimpleChunkController = {
             console.log(`[SimpleFinalize] Finalizing ${recordingId}`);
 
             // 1. Get all chunks from DB
-            const chunks = await prisma.RecordingChunk.findMany({
+            const chunks = await prisma.recordingChunk.findMany({
                 where: { recordingId },
                 orderBy: { sequence: 'asc' }
             });
@@ -134,7 +134,7 @@ export const SimpleChunkController = {
             });
 
             // 5. Cleanup
-            await prisma.RecordingChunk.deleteMany({ where: { recordingId } });
+            await prisma.recordingChunk.deleteMany({ where: { recordingId } });
             const chunkDir = path.join(TEMP_FOLDERS.chunks, recordingId);
             if (fs.existsSync(chunkDir)) {
                 fs.rmSync(chunkDir, { recursive: true, force: true });
