@@ -202,6 +202,11 @@ export const SimpleChunkController = {
             }
 
             const rawBuffer = Buffer.concat(chunkBuffers);
+
+            if (rawBuffer.length === 0) {
+                throw new Error('Assembled audio is empty (0 bytes)');
+            }
+
             const rawExt = chunks[0].mimeType.includes('mp4') ? '.mp4' : '.webm';
             const rawFilename = `${recordingId}_raw${rawExt}`;
             const rawPath = path.join(TEMP_FOLDERS.merged, rawFilename);
