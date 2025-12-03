@@ -4,15 +4,12 @@ import Waveform from './Waveform';
 import { RecordingStatus } from '../types';
 import { useWakeLock } from '../hooks/useWakeLock';
 import { simpleRecorder } from '../services/simpleRecorder';
-import { simpleRecorder } from '../services/simpleRecorder';
 
 interface StreamingRecorderProps {
     recordingId: string;
     onComplete: (recordingId: string) => void;
     onCancel: () => void;
 }
-
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
 const StreamingRecorder: React.FC<StreamingRecorderProps> = ({
     recordingId,
@@ -24,48 +21,99 @@ const StreamingRecorder: React.FC<StreamingRecorderProps> = ({
     const [stream, setStream] = useState<MediaStream | null>(null);
     const [uploadedChunks, setUploadedChunks] = useState(0);
     const [totalSize, setTotalSize] = useState(0);
+    const [isFinalizing, setIsFinalizing] = useState(false);
 
-    const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-    const streamRef = useRef<MediaStream | null>(null);
-    const chunkSequenceRef = useRef(0);
-    const uploadQueueRef = useRef<Promise<void>>(Promise.resolve());
     const timerRef = useRef<number | null>(null);
-
     const { requestLock, releaseLock } = useWakeLock();
 
-    // ============================================
-    // CHUNK UPLOAD HANDLER (Real-time streaming)
-    // ============================================
-    // ============================================
-    // CHUNK UPLOAD HANDLER (Real-time streaming)
-    // ============================================
-    const uploadChunk = async (chunk: Blob, sequence: number): Promise<void> => {
-        const formData = new FormData();
-        const resumeRecording = () => {
-            if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'paused') {
-                mediaRecorderRef.current.resume();
-                setStatus(RecordingStatus.RECORDING);
-                mediaRecorderRef.current.stop();
-            }
+    // Start recording on mount
+    useEffect(() => {
+        startRecording();
+        return () => {
+            // Cleanup on unmount
             if (timerRef.current) {
                 clearInterval(timerRef.current);
             }
-            if (streamRef.current) {
-                streamRef.current.getTracks().forEach(track => track.stop());
-            }
+            simpleRecorder.cancel();
             releaseLock();
         };
-    }, [releaseLock]);
-
-    // Auto-start on mount
-    useEffect(() => {
-        startRecording();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    // ============================================
-    // UI
-    // ============================================
+    const startRecording = async () => {
+        try {
+            await requestLock();
+
+            await simpleRecorder.startRecording((chunk: Blob) => {
+                // Track chunks
+                setUploadedChunks(prev => prev + 1);
+                setTotalSize(prev => prev + chunk.size);
+            });
+
+            // Get the stream for waveform
+            if (simpleRecorder.stream) {
+                setStream(simpleRecorder.stream);
+            }
+
+            setStatus(RecordingStatus.RECORDING);
+
+            // Start timer
+            timerRef.current = window.setInterval(() => {
+                setDuration(prev => prev + 1);
+            }, 1000);
+
+            console.log('[StreamingRecorder] Recording started');
+        } catch (error) {
+            console.error('[StreamingRecorder] Failed to start recording:', error);
+            alert('Error al iniciar la grabación. Por favor verifica los permisos del micrófono.');
+            onCancel();
+        }
+    };
+
+    const pauseRecording = () => {
+        if (simpleRecorder.mediaRecorder && simpleRecorder.mediaRecorder.state === 'recording') {
+            simpleRecorder.mediaRecorder.pause();
+            setStatus(RecordingStatus.PAUSED);
+            if (timerRef.current) {
+                clearInterval(timerRef.current);
+            }
+        }
+    };
+
+    const resumeRecording = () => {
+        if (simpleRecorder.mediaRecorder && simpleRecorder.mediaRecorder.state === 'paused') {
+            simpleRecorder.mediaRecorder.resume();
+            setStatus(RecordingStatus.RECORDING);
+            timerRef.current = window.setInterval(() => {
+                setDuration(prev => prev + 1);
+            }, 1000);
+        }
+    };
+
+    const stopRecording = async () => {
+        try {
+            setIsFinalizing(true);
+            setStatus(RecordingStatus.COMPLETED);
+
+            if (timerRef.current) {
+                clearInterval(timerRef.current);
+            }
+
+            console.log('[StreamingRecorder] Stopping recording...');
+            const result = await simpleRecorder.stopRecording();
+
+            console.log('[StreamingRecorder] Recording stopped and finalized:', result);
+
+            releaseLock();
+            onComplete(simpleRecorder.recordingId || recordingId);
+        } catch (error: any) {
+            console.error('[StreamingRecorder] Error stopping recording:', error);
+            alert(`Error al finalizar la grabación: ${error.message}`);
+            setIsFinalizing(false);
+            setStatus(RecordingStatus.ERROR);
+        }
+    };
+
     return (
         <div className="flex flex-col items-center justify-center min-h-[60vh] w-full max-w-3xl mx-auto p-6 animate-fade-in">
             {/* Visual Recording Indicator */}
@@ -159,7 +207,7 @@ const StreamingRecorder: React.FC<StreamingRecorderProps> = ({
                 <button
                     onClick={stopRecording}
                     className="min-w-[72px] min-h-[72px] p-7 bg-primary hover:bg-primary-hover text-white rounded-full hover:scale-105 active:scale-95 transition-transform shadow-xl flex items-center justify-center"
-                    disabled={status === RecordingStatus.COMPLETED}
+                    disabled={isFinalizing}
                 >
                     <Square size={36} fill="currentColor" />
                 </button>
@@ -173,7 +221,7 @@ const StreamingRecorder: React.FC<StreamingRecorderProps> = ({
                     </span>
                 ) : status === RecordingStatus.PAUSED ? (
                     <span>Grabación pausada</span>
-                ) : status === RecordingStatus.COMPLETED ? (
+                ) : status === RecordingStatus.COMPLETED || isFinalizing ? (
                     <span>Finalizando...</span>
                 ) : null}
             </div>
@@ -181,6 +229,7 @@ const StreamingRecorder: React.FC<StreamingRecorderProps> = ({
             <button
                 onClick={onCancel}
                 className="mt-12 text-stone-400 hover:text-stone-600 underline text-sm"
+                disabled={isFinalizing}
             >
                 Cancelar grabación
             </button>
