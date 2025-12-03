@@ -28,7 +28,7 @@ const PORT = process.env.PORT || 10000;
 // ==========================================
 // 1. SYSTEM INITIALIZATION
 // ==========================================
-console.log('[System] Starting Kipu Backend...');
+console.log('[System] Starting Kipu Backend v2.1 (Robust Pipeline + Binary Concat)...');
 
 // Initialize Temp Folders
 try {
