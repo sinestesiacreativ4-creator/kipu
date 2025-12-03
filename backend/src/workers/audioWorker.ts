@@ -212,28 +212,23 @@ async function analyzeChunk(
     const prompt = `
     Analiza este SEGMENTO ${index + 1} de ${total} de una grabación de audio.
     
-    CRÍTICO: Responde SOLO con JSON válido, sin texto adicional.
+    CRÍTICO: Responde SOLO con JSON válido.
     
-    OBJETIVO PRINCIPAL: Generar una TRANSCRIPCIÓN VERBATIM (palabra por palabra) completa y precisa.
+    OBJETIVO ÚNICO Y PRIORITARIO: Generar una TRANSCRIPCIÓN VERBATIM (palabra por palabra) EXACTA de TODO lo que se dice.
     
     Formato requerido:
     {
-      "summary": ["Punto clave 1", "Punto clave 2"],
-      "decisions": ["Decisión tomada 1"],
-      "actionItems": ["Tarea pendiente 1 (Responsable)"],
-      "participants": ["Nombre 1"],
-      "keyTopics": ["Tema 1"],
       "transcript": [
         {"speaker": "Hablante", "text": "Texto exacto dicho por el hablante.", "timestamp": "MM:SS"}
-      ]
+      ],
+      "summary": ["Resumen muy breve (1 linea)"],
+      "actionItems": ["Tareas (si hay)"]
     }
     
-    INSTRUCCIONES DETALLADAS:
-    1. TRANSCRIPCIÓN (Prioridad Alta): Debe ser EXHAUSTIVA. Captura cada palabra dicha. No resumas el texto en la sección de transcripción.
-    2. "decisions": Acuerdos o resoluciones concretas.
-    3. "actionItems": Tareas pendientes con responsable entre paréntesis.
-    4. "participants": Personas identificadas por voz.
-    5. "keyTopics": Temas específicos (ej: "Presupuesto Q1", no "Finanzas").
+    INSTRUCCIONES:
+    1. TRANSCRIPCIÓN: Escribe CADA palabra. No resumas. No omitas nada. Si hablan rápido, escribe todo.
+    2. Si hay silencio o música, ignóralo.
+    3. Prioriza la precisión del texto sobre cualquier otra cosa.
     `;
 
     // Determine MIME type from file extension
