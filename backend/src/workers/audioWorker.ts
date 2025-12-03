@@ -214,23 +214,27 @@ async function analyzeChunk(
     
     CRÍTICO: Responde SOLO con JSON válido.
     
-    OBJETIVO 1: TRANSCRIPCIÓN VERBATIM (Palabra por palabra).
-    OBJETIVO 2: Título y Resumen.
+    OBJETIVO: Realizar un análisis EXHAUSTIVO y PROFESIONAL del audio.
     
     Formato JSON requerido:
     {
-      "title": "Un título breve y descriptivo (3-5 palabras)",
+      "title": "Título profesional y descriptivo (5-10 palabras)",
       "transcript": [
-        {"speaker": "Hablante", "text": "Texto exacto dicho por el hablante.", "timestamp": "MM:SS"}
+        {"speaker": "Hablante 1", "text": "Texto exacto dicho por el hablante.", "timestamp": "MM:SS"}
       ],
-      "summary": ["Punto clave 1", "Punto clave 2"],
-      "tags": ["Tema1", "Tema2"]
+      "summary": ["Punto clave 1", "Punto clave 2", "Punto clave 3"],
+      "actionItems": ["Tarea 1 (Responsable)", "Tarea 2 (Responsable)"],
+      "participants": ["Nombre 1", "Nombre 2"],
+      "keyTopics": ["Tema 1", "Tema 2"],
+      "decisions": ["Decisión 1", "Decisión 2"]
     }
     
-    INSTRUCCIONES:
-    1. TRANSCRIPCIÓN: Prioridad MÁXIMA. Escribe CADA palabra que escuches. No resumas la transcripción.
-    2. TÍTULO: Genera un título relevante basado en el contenido.
-    3. Si el audio es ruido o silencio, indica "Silencio" en el título.
+    INSTRUCCIONES DE CALIDAD:
+    1. TRANSCRIPCIÓN: Prioridad MÁXIMA. Debe ser VERBATIM (palabra por palabra). No resumas. Captura todo.
+    2. RESUMEN: Extrae los puntos más importantes y decisiones clave.
+    3. TAREAS: Identifica claramente quién debe hacer qué.
+    4. PARTICIPANTES: Identifica nombres si se mencionan.
+    5. TEMAS: Categoriza el contenido.
     `;
 
     // Determine MIME type from file extension
@@ -362,6 +366,8 @@ function mergeAnalyses(results: any[]): any {
     merged.participants = [...new Set(merged.participants)];
     merged.keyTopics = [...new Set(merged.keyTopics)];
     merged.tags = [...new Set(merged.tags)].slice(0, 5); // Top 5 tags
+    merged.decisions = [...new Set(merged.decisions)];
+    merged.actionItems = [...new Set(merged.actionItems)];
 
     // Generate intelligent title
     // Prefer the title from the first chunk that has one, or the longest one
