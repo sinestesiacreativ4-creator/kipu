@@ -220,11 +220,20 @@ async function analyzeChunk(
     5. "keyTopics": Temas específicos (ej: "Presupuesto Q1", no "Finanzas").
     `;
 
+    // Determine MIME type from file extension
+    const ext = path.extname(chunkPath).toLowerCase();
+    let mimeType = "audio/webm"; // Default
+    if (ext === '.mp4' || ext === '.m4a') mimeType = "audio/mp4";
+    else if (ext === '.mp3') mimeType = "audio/mp3";
+    else if (ext === '.wav') mimeType = "audio/wav";
+    else if (ext === '.ogg') mimeType = "audio/ogg";
+    else if (ext === '.aac') mimeType = "audio/aac";
+
     const executeAnalysis = async () => {
         const result = await model.generateContent([
             {
                 inlineData: {
-                    mimeType: "audio/webm",
+                    mimeType: mimeType,
                     data: audioBase64
                 }
             },
