@@ -22,17 +22,33 @@ const VoiceChat: React.FC<VoiceChatProps> = ({ recordingId }) => {
             setStatus('Conectando...');
 
             // Initialize session with backend
-            const response = await fetch(`/api/voice/init/${recordingId}`, {
-                method: 'POST'
+            const apiUrl = `${window.location.origin}/api/voice/init/${recordingId}`;
+            console.log('[Voice] Connecting to:', apiUrl);
+
+            const response = await fetch(apiUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
             });
 
-            if (!response.ok) throw new Error('Failed to initialize voice session');
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.error('[Voice] API Error:', response.status, errorText);
+                throw new Error(`Error ${response.status}: ${errorText || 'Failed to initialize voice session'}`);
+            }
 
-            const { sessionId } = await response.json();
+            const data = await response.json();
+            console.log('[Voice] Session initialized:', data);
+
+            const { sessionId } = data;
             sessionIdRef.current = sessionId;
 
             // Connect WebSocket
-            const wsUrl = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/voice?sessionId=${sessionId}`;
+            const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${wsProtocol}//${window.location.host}/voice?sessionId=${sessionId}`;
+            console.log('[Voice] Connecting WebSocket to:', wsUrl);
+
             const ws = new WebSocket(wsUrl);
 
             ws.onopen = () => {
@@ -49,19 +65,19 @@ const VoiceChat: React.FC<VoiceChatProps> = ({ recordingId }) => {
 
             ws.onerror = (error) => {
                 console.error('[Voice] WebSocket error:', error);
-                setStatus('Error de conexión');
+                setStatus('Error de conexión WebSocket');
             };
 
-            ws.onclose = () => {
-                console.log('[Voice] WebSocket closed');
+            ws.onclose = (event) => {
+                console.log('[Voice] WebSocket closed:', event.code, event.reason);
                 setIsConnected(false);
-                setStatus('Desconectado');
+                setStatus(event.code === 1008 ? 'Sesión inválida' : 'Desconectado');
                 cleanup();
             };
 
-        } catch (error) {
+        } catch (error: any) {
             console.error('[Voice] Connection error:', error);
-            setStatus('Error al conectar');
+            setStatus(`Error: ${error.message || 'No se pudo conectar'}`);
         }
     };
 
@@ -199,6 +215,11 @@ const VoiceChat: React.FC<VoiceChatProps> = ({ recordingId }) => {
 
     return (
         <div className="flex flex-col items-center justify-center p-8 bg-gradient-to-br from-primary/5 to-secondary/5 rounded-2xl border-2 border-dashed border-stone-200 dark:border-stone-700">
+            {/* Beta Badge */}
+            <div className="mb-4 px-3 py-1 bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-200 text-xs font-bold rounded-full border border-amber-200 dark:border-amber-800">
+                🚧 BETA - En Desarrollo
+            </div>
+
             {/* Status */}
             <div className="text-center mb-6">
                 <h3 className="text-lg font-bold text-stone-800 dark:text-white mb-2">
@@ -207,15 +228,20 @@ const VoiceChat: React.FC<VoiceChatProps> = ({ recordingId }) => {
                 <p className="text-sm text-stone-600 dark:text-stone-400">
                     {status}
                 </p>
+                {status.includes('Error') && (
+                    <p className="text-xs text-red-600 dark:text-red-400 mt-2">
+                        💡 Tip: Verifica la consola del navegador para más detalles
+                    </p>
+                )}
             </div>
 
             {/* Visual Indicator */}
             <div className="relative mb-8">
                 <div className={`w-32 h-32 rounded-full flex items-center justify-center transition-all ${isSpeaking
-                        ? 'bg-secondary animate-pulse'
-                        : isListening
-                            ? 'bg-primary animate-pulse'
-                            : 'bg-stone-200 dark:bg-stone-700'
+                    ? 'bg-secondary animate-pulse'
+                    : isListening
+                        ? 'bg-primary animate-pulse'
+                        : 'bg-stone-200 dark:bg-stone-700'
                     }`}>
                     {isSpeaking ? (
                         <Volume2 size={48} className="text-white" />
@@ -248,8 +274,8 @@ const VoiceChat: React.FC<VoiceChatProps> = ({ recordingId }) => {
                             onClick={isListening ? stopListening : startListening}
                             disabled={isSpeaking}
                             className={`px-6 py-3 rounded-xl font-medium transition-colors flex items-center gap-2 ${isListening
-                                    ? 'bg-red-500 hover:bg-red-600 text-white'
-                                    : 'bg-primary hover:bg-primary-hover text-white'
+                                ? 'bg-red-500 hover:bg-red-600 text-white'
+                                : 'bg-primary hover:bg-primary-hover text-white'
                                 } disabled:opacity-50 disabled:cursor-not-allowed`}
                         >
                             {isListening ? (
