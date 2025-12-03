@@ -168,7 +168,117 @@ export const SimpleChunkController = {
                 orderBy: { sequence: 'asc' }
             });
 
-            if (chunks.length === 0) {
-                return res.status(400).json({ error: 'No chunks found', code: 'NO_CHUNKS' });
+            // 2. Validate Sequence
+            const validation = validateChunkSequence(chunks);
+            if (!validation.valid) {
+                console.warn(`[Finalize] Missing chunks for ${recordingId}:`, validation.missing);
             }
-        };
+
+            // Calculate stats
+            const totalSize = chunks.reduce((acc, c) => acc + c.size, 0);
+            const avgSize = totalSize / chunks.length;
+            console.log(`[Finalize] Assembling ${chunks.length} chunks. Total size: ${totalSize} bytes. Avg chunk size: ${Math.round(avgSize)} bytes.`);
+
+            // Log individual chunk sizes to debug "empty" audio
+            if (avgSize < 10000) { // If avg size < 10KB, something might be wrong
+                console.warn('[Finalize] Chunks are very small. Listing sizes:');
+                chunks.forEach(c => console.log(`Seq ${c.sequence}: ${c.size} bytes`));
+            }
+
+            // 3. Prepare for FFmpeg Concatenation
+            const chunkDir = path.join(TEMP_FOLDERS.chunks, recordingId);
+            const listPath = path.join(chunkDir, 'files.txt');
+
+            // Generate ffmpeg file list
+            const fileListContent = chunks
+                .map(c => `file '${c.filePath.replace(/\\/g, '/')}'`)
+                .join('\n');
+
+            fs.writeFileSync(listPath, fileListContent);
+
+            // Always output to MP4/AAC for consistency and robustness (re-encoding fixes timestamps)
+            const finalFilename = `${recordingId}_final.mp4`;
+            const finalPath = path.join(TEMP_FOLDERS.merged, finalFilename);
+
+            // Ensure merged dir exists
+            if (!fs.existsSync(TEMP_FOLDERS.merged)) {
+                fs.mkdirSync(TEMP_FOLDERS.merged, { recursive: true });
+            }
+
+            // 4. Execute FFmpeg Concat with Re-encoding
+            console.log(`[Finalize] Running FFmpeg concat & transcode to AAC...`);
+            await new Promise<void>((resolve, reject) => {
+                ffmpeg()
+                    .input(listPath)
+                    .inputOptions(['-f', 'concat', '-safe', '0'])
+                    .outputOptions([
+                        '-c:a', 'aac',       // Re-encode to AAC
+                        '-b:a', '128k',      // 128k bitrate
+                        '-ac', '2',          // Stereo
+                        '-movflags', '+faststart' // Optimize for streaming
+                    ])
+                    .save(finalPath)
+                    .on('end', () => resolve())
+                    .on('error', (err) => {
+                        console.error('[Finalize] FFmpeg error:', err);
+                        reject(err);
+                    });
+            });
+
+            // 5. Verify Output & Get Duration
+            const stats = fs.statSync(finalPath);
+
+            // Get actual duration using ffprobe
+            let actualDuration = 0;
+            try {
+                await new Promise<void>((resolve) => {
+                    ffmpeg.ffprobe(finalPath, (err, metadata) => {
+                        if (!err && metadata && metadata.format && metadata.format.duration) {
+                            actualDuration = metadata.format.duration;
+                        }
+                        resolve();
+                    });
+                });
+            } catch (e) {
+                console.warn('[Finalize] Failed to probe duration:', e);
+            }
+
+            console.log(`[Finalize] Assembly complete: ${finalPath}`);
+            console.log(`[Finalize] Size: ${stats.size} bytes. Duration: ${actualDuration.toFixed(2)}s`);
+
+            // 6. Update Recording Status
+            await prisma.recording.update({
+                where: { id: recordingId },
+                data: {
+                    audioKey: finalPath,
+                    status: 'PROCESSING',
+                    duration: actualDuration || (chunks.length * 5) // Fallback to estimate
+                }
+            });
+
+            // 7. Enqueue Job
+            await audioQueue.add('process-audio', {
+                recordingId,
+                filePath: finalPath,
+                mimeType: 'audio/mp4'
+            });
+
+            // 8. Cleanup
+            await prisma.recordingChunk.deleteMany({ where: { recordingId } });
+            if (fs.existsSync(chunkDir)) {
+                fs.rmSync(chunkDir, { recursive: true, force: true });
+            }
+
+            res.json({
+                success: true,
+                path: finalPath,
+                chunksProcessed: chunks.length,
+                duration: actualDuration
+            });
+
+        } catch (error: any) {
+            console.error('[Finalize] Error:', error);
+            res.status(500).json({ error: error.message });
+        }
+    }
+};
