@@ -1,106 +1,314 @@
-import React, { useState } from 'react';
-import { Mic, MessageSquare } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { Mic, MicOff, Volume2, VolumeX, Loader2, Phone, PhoneOff } from 'lucide-react';
 
 interface VoiceChatProps {
     recordingId: string;
 }
 
 const VoiceChat: React.FC<VoiceChatProps> = ({ recordingId }) => {
-    const [showInfo, setShowInfo] = useState(true);
+    const [isConnected, setIsConnected] = useState(false);
+    const [isListening, setIsListening] = useState(false);
+    const [isSpeaking, setIsSpeaking] = useState(false);
+    const [status, setStatus] = useState<string>('Desconectado');
 
-    const switchToChat = () => {
-        // Find and click the chat tab
-        const tabs = document.querySelectorAll('button');
-        tabs.forEach(tab => {
-            if (tab.textContent?.includes('Chat AI')) {
-                tab.click();
+    const wsRef = useRef<WebSocket | null>(null);
+    const sessionIdRef = useRef<string | null>(null);
+    const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+    const audioContextRef = useRef<AudioContext | null>(null);
+
+    // Initialize voice session
+    const connect = async () => {
+        try {
+            setStatus('Conectando...');
+
+            // Initialize session with backend
+            const apiUrl = `${window.location.origin}/api/voice/init/${recordingId}`;
+            console.log('[Voice] Connecting to:', apiUrl);
+
+            const response = await fetch(apiUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.error('[Voice] API Error:', response.status, errorText);
+                throw new Error(`Error ${response.status}: ${errorText || 'Failed to initialize voice session'}`);
             }
-        });
+
+            const data = await response.json();
+            console.log('[Voice] Session initialized:', data);
+
+            const { sessionId } = data;
+            sessionIdRef.current = sessionId;
+
+            // Connect WebSocket
+            const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${wsProtocol}//${window.location.host}/voice?sessionId=${sessionId}`;
+            console.log('[Voice] Connecting WebSocket to:', wsUrl);
+
+            const ws = new WebSocket(wsUrl);
+
+            ws.onopen = () => {
+                console.log('[Voice] WebSocket connected');
+                setIsConnected(true);
+                setStatus('Conectado - Presiona el micrófono para hablar');
+                wsRef.current = ws;
+            };
+
+            ws.onmessage = (event) => {
+                const message = JSON.parse(event.data);
+                handleGeminiMessage(message);
+            };
+
+            ws.onerror = (error) => {
+                console.error('[Voice] WebSocket error:', error);
+                setStatus('Error de conexión WebSocket');
+            };
+
+            ws.onclose = (event) => {
+                console.log('[Voice] WebSocket closed:', event.code, event.reason);
+                setIsConnected(false);
+                setStatus(event.code === 1008 ? 'Sesión inválida' : 'Desconectado');
+                cleanup();
+            };
+
+        } catch (error: any) {
+            console.error('[Voice] Connection error:', error);
+            setStatus(`Error: ${error.message || 'No se pudo conectar'}`);
+        }
     };
 
+    // Handle messages from Gemini
+    const handleGeminiMessage = (message: any) => {
+        if (message.serverContent?.modelTurn) {
+            const parts = message.serverContent.modelTurn.parts;
+
+            parts.forEach((part: any) => {
+                // Handle audio response
+                if (part.inlineData?.mimeType === 'audio/pcm') {
+                    playAudio(part.inlineData.data);
+                }
+
+                // Handle text response (for debugging)
+                if (part.text) {
+                    console.log('[Voice] Gemini:', part.text);
+                }
+            });
+        }
+
+        // Handle turn complete
+        if (message.serverContent?.turnComplete) {
+            setIsSpeaking(false);
+        }
+    };
+
+    // Play audio from Gemini
+    const playAudio = async (base64Audio: string) => {
+        try {
+            setIsSpeaking(true);
+
+            if (!audioContextRef.current) {
+                audioContextRef.current = new AudioContext({ sampleRate: 24000 });
+            }
+
+            const audioData = Uint8Array.from(atob(base64Audio), c => c.charCodeAt(0));
+            const audioBuffer = await audioContextRef.current.decodeAudioData(audioData.buffer);
+
+            const source = audioContextRef.current.createBufferSource();
+            source.buffer = audioBuffer;
+            source.connect(audioContextRef.current.destination);
+            source.onended = () => setIsSpeaking(false);
+            source.start();
+
+        } catch (error) {
+            console.error('[Voice] Error playing audio:', error);
+            setIsSpeaking(false);
+        }
+    };
+
+    // Start listening (capture microphone)
+    const startListening = async () => {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({
+                audio: {
+                    channelCount: 1,
+                    sampleRate: 16000,
+                    echoCancellation: true,
+                    noiseSuppression: true
+                }
+            });
+
+            const mediaRecorder = new MediaRecorder(stream, {
+                mimeType: 'audio/webm;codecs=opus'
+            });
+
+            mediaRecorder.ondataavailable = (event) => {
+                if (event.data.size > 0 && wsRef.current?.readyState === WebSocket.OPEN) {
+                    // Convert to base64 and send
+                    const reader = new FileReader();
+                    reader.onloadend = () => {
+                        const base64 = (reader.result as string).split(',')[1];
+                        wsRef.current?.send(JSON.stringify({
+                            type: 'audio',
+                            data: base64
+                        }));
+                    };
+                    reader.readAsDataURL(event.data);
+                }
+            };
+
+            mediaRecorder.start(100); // Send chunks every 100ms
+            mediaRecorderRef.current = mediaRecorder;
+            setIsListening(true);
+            setStatus('Escuchando...');
+
+        } catch (error) {
+            console.error('[Voice] Error accessing microphone:', error);
+            setStatus('Error: No se pudo acceder al micrófono');
+        }
+    };
+
+    // Stop listening
+    const stopListening = () => {
+        if (mediaRecorderRef.current) {
+            mediaRecorderRef.current.stop();
+            mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
+            mediaRecorderRef.current = null;
+        }
+        setIsListening(false);
+        setStatus('Conectado - Presiona el micrófono para hablar');
+    };
+
+    // Disconnect
+    const disconnect = async () => {
+        if (sessionIdRef.current) {
+            await fetch(`/api/voice/close/${sessionIdRef.current}`, { method: 'POST' });
+        }
+
+        if (wsRef.current) {
+            wsRef.current.close();
+        }
+
+        cleanup();
+    };
+
+    // Cleanup
+    const cleanup = () => {
+        stopListening();
+        if (audioContextRef.current) {
+            audioContextRef.current.close();
+            audioContextRef.current = null;
+        }
+        wsRef.current = null;
+        sessionIdRef.current = null;
+    };
+
+    // Cleanup on unmount
+    useEffect(() => {
+        return () => {
+            cleanup();
+        };
+    }, []);
+
     return (
-        <div className="flex flex-col items-center justify-center p-12 bg-gradient-to-br from-primary/5 to-secondary/5 rounded-2xl border-2 border-dashed border-stone-200 dark:border-stone-700">
-            {/* Coming Soon Badge */}
-            <div className="mb-6 px-4 py-2 bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-200 text-sm font-bold rounded-full border border-amber-200 dark:border-amber-800">
-                🚧 Próximamente
+        <div className="flex flex-col items-center justify-center p-8 bg-gradient-to-br from-primary/5 to-secondary/5 rounded-2xl border-2 border-dashed border-stone-200 dark:border-stone-700">
+            {/* Beta Badge */}
+            <div className="mb-4 px-3 py-1 bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-200 text-xs font-bold rounded-full border border-amber-200 dark:border-amber-800">
+                🚧 BETA - En Desarrollo
             </div>
 
-            {/* Icon */}
-            <div className="w-32 h-32 rounded-full bg-gradient-to-br from-primary/20 to-secondary/20 flex items-center justify-center mb-6">
-                <Mic size={64} className="text-primary" />
+            {/* Status */}
+            <div className="text-center mb-6">
+                <h3 className="text-lg font-bold text-stone-800 dark:text-white mb-2">
+                    🎙️ Asistente de Voz
+                </h3>
+                <p className="text-sm text-stone-600 dark:text-stone-400">
+                    {status}
+                </p>
+                {status.includes('Error') && (
+                    <p className="text-xs text-red-600 dark:text-red-400 mt-2">
+                        💡 Tip: Verifica la consola del navegador para más detalles
+                    </p>
+                )}
             </div>
 
-            {/* Title */}
-            <h3 className="text-2xl font-bold text-stone-800 dark:text-white mb-3">
-                Asistente de Voz
-            </h3>
+            {/* Visual Indicator */}
+            <div className="relative mb-8">
+                <div className={`w-32 h-32 rounded-full flex items-center justify-center transition-all ${isSpeaking
+                    ? 'bg-secondary animate-pulse'
+                    : isListening
+                        ? 'bg-primary animate-pulse'
+                        : 'bg-stone-200 dark:bg-stone-700'
+                    }`}>
+                    {isSpeaking ? (
+                        <Volume2 size={48} className="text-white" />
+                    ) : isListening ? (
+                        <Mic size={48} className="text-white" />
+                    ) : (
+                        <MicOff size={48} className="text-stone-400" />
+                    )}
+                </div>
 
-            {/* Description */}
-            <p className="text-center text-stone-600 dark:text-stone-400 mb-6 max-w-md">
-                La funcionalidad de voz está en desarrollo. Requiere configuración adicional del servidor y acceso a Gemini Live API.
-            </p>
+                {/* Ripple effect when speaking */}
+                {isSpeaking && (
+                    <div className="absolute inset-0 rounded-full bg-secondary animate-ping opacity-20" />
+                )}
+            </div>
 
-            {/* Info Box */}
-            {showInfo && (
-                <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-4 mb-6 max-w-md">
-                    <div className="flex items-start gap-3">
-                        <div className="text-blue-600 dark:text-blue-400 mt-0.5">
-                            💡
-                        </div>
-                        <div className="flex-1">
-                            <h4 className="font-semibold text-blue-900 dark:text-blue-100 mb-2">
-                                Usa el Chat AI mientras tanto
-                            </h4>
-                            <p className="text-sm text-blue-800 dark:text-blue-200 mb-3">
-                                El Chat AI tiene las mismas capacidades y está completamente funcional. Puedes hacer las mismas preguntas sobre tu reunión.
-                            </p>
-                            <button
-                                onClick={switchToChat}
-                                className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors"
-                            >
-                                <MessageSquare size={16} />
-                                Ir al Chat AI
-                            </button>
-                        </div>
+            {/* Controls */}
+            <div className="flex gap-4">
+                {!isConnected ? (
+                    <button
+                        onClick={connect}
+                        className="px-6 py-3 bg-primary hover:bg-primary-hover text-white rounded-xl font-medium transition-colors flex items-center gap-2"
+                    >
+                        <Phone size={20} />
+                        Iniciar Conversación
+                    </button>
+                ) : (
+                    <>
                         <button
-                            onClick={() => setShowInfo(false)}
-                            className="text-blue-400 hover:text-blue-600 dark:text-blue-500 dark:hover:text-blue-300"
+                            onClick={isListening ? stopListening : startListening}
+                            disabled={isSpeaking}
+                            className={`px-6 py-3 rounded-xl font-medium transition-colors flex items-center gap-2 ${isListening
+                                ? 'bg-red-500 hover:bg-red-600 text-white'
+                                : 'bg-primary hover:bg-primary-hover text-white'
+                                } disabled:opacity-50 disabled:cursor-not-allowed`}
                         >
-                            ✕
+                            {isListening ? (
+                                <>
+                                    <MicOff size={20} />
+                                    Detener
+                                </>
+                            ) : (
+                                <>
+                                    <Mic size={20} />
+                                    Hablar
+                                </>
+                            )}
                         </button>
-                    </div>
+
+                        <button
+                            onClick={disconnect}
+                            className="px-6 py-3 bg-stone-200 hover:bg-stone-300 dark:bg-stone-700 dark:hover:bg-stone-600 text-stone-800 dark:text-white rounded-xl font-medium transition-colors flex items-center gap-2"
+                        >
+                            <PhoneOff size={20} />
+                            Finalizar
+                        </button>
+                    </>
+                )}
+            </div>
+
+            {/* Instructions */}
+            {isConnected && (
+                <div className="mt-6 text-center text-sm text-stone-600 dark:text-stone-400">
+                    <p>💡 Presiona "Hablar" y pregunta sobre la reunión</p>
+                    <p className="text-xs mt-1">Ejemplo: "¿Qué decisiones se tomaron?"</p>
                 </div>
             )}
-
-            {/* Features List */}
-            <div className="bg-white dark:bg-stone-800 rounded-xl p-6 border border-stone-200 dark:border-stone-700 max-w-md">
-                <h4 className="font-semibold text-stone-900 dark:text-white mb-4">
-                    Características planeadas:
-                </h4>
-                <ul className="space-y-3 text-sm text-stone-600 dark:text-stone-400">
-                    <li className="flex items-start gap-2">
-                        <span className="text-green-500 mt-0.5">✓</span>
-                        <span>Conversación en tiempo real con latencia baja</span>
-                    </li>
-                    <li className="flex items-start gap-2">
-                        <span className="text-green-500 mt-0.5">✓</span>
-                        <span>Voz natural y expresiva en español</span>
-                    </li>
-                    <li className="flex items-start gap-2">
-                        <span className="text-green-500 mt-0.5">✓</span>
-                        <span>Interrupciones naturales durante la conversación</span>
-                    </li>
-                    <li className="flex items-start gap-2">
-                        <span className="text-green-500 mt-0.5">✓</span>
-                        <span>Acceso completo al contexto de la reunión</span>
-                    </li>
-                </ul>
-            </div>
-
-            {/* Technical Note */}
-            <p className="text-xs text-stone-500 dark:text-stone-500 mt-6 text-center max-w-md">
-                Esta función requiere Gemini Live API (actualmente en preview) y configuración adicional del servidor WebSocket.
-            </p>
         </div>
     );
 };

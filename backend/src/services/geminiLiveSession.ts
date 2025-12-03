@@ -18,7 +18,7 @@ export class GeminiLiveSession {
 
     async connect(): Promise<void> {
         const apiKey = process.env.GEMINI_API_KEY;
-        const model = 'gemini-2.0-flash-exp';
+        const model = 'gemini-2.5-flash-live';
 
         // Gemini Live API WebSocket URL
         const wsUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${apiKey}`;
@@ -50,7 +50,7 @@ export class GeminiLiveSession {
 
         const setupMessage = {
             setup: {
-                model: 'models/gemini-2.0-flash-exp',
+                model: 'models/gemini-2.5-flash-live',
                 generation_config: {
                     response_modalities: ['AUDIO'],
                     speech_config: {
