@@ -214,21 +214,23 @@ async function analyzeChunk(
     
     CRÍTICO: Responde SOLO con JSON válido.
     
-    OBJETIVO ÚNICO Y PRIORITARIO: Generar una TRANSCRIPCIÓN VERBATIM (palabra por palabra) EXACTA de TODO lo que se dice.
+    OBJETIVO 1: TRANSCRIPCIÓN VERBATIM (Palabra por palabra).
+    OBJETIVO 2: Título y Resumen.
     
-    Formato requerido:
+    Formato JSON requerido:
     {
+      "title": "Un título breve y descriptivo (3-5 palabras)",
       "transcript": [
         {"speaker": "Hablante", "text": "Texto exacto dicho por el hablante.", "timestamp": "MM:SS"}
       ],
-      "summary": ["Resumen muy breve (1 linea)"],
-      "actionItems": ["Tareas (si hay)"]
+      "summary": ["Punto clave 1", "Punto clave 2"],
+      "tags": ["Tema1", "Tema2"]
     }
     
     INSTRUCCIONES:
-    1. TRANSCRIPCIÓN: Escribe CADA palabra. No resumas. No omitas nada. Si hablan rápido, escribe todo.
-    2. Si hay silencio o música, ignóralo.
-    3. Prioriza la precisión del texto sobre cualquier otra cosa.
+    1. TRANSCRIPCIÓN: Prioridad MÁXIMA. Escribe CADA palabra que escuches. No resumas la transcripción.
+    2. TÍTULO: Genera un título relevante basado en el contenido.
+    3. Si el audio es ruido o silencio, indica "Silencio" en el título.
     `;
 
     // Determine MIME type from file extension
@@ -306,6 +308,7 @@ async function analyzeChunk(
             `[Worker] All models exhausted for chunk ${index + 1}. Returning graceful degradation.`
         );
         return {
+            title: "Error de Procesamiento",
             summary: [
                 `Segmento ${index + 1}/${total}: Análisis temporalmente no disponible debido a limitaciones de API. ` +
                 `El contenido de audio fue recibido pero no pudo ser procesado completamente. ` +
@@ -315,7 +318,8 @@ async function analyzeChunk(
             actionItems: [],
             participants: [],
             keyTopics: ["Procesamiento Parcial - Reintentar"],
-            transcript: []
+            transcript: [],
+            tags: ["Error"]
         };
     }
 }
@@ -344,6 +348,7 @@ function mergeAnalyses(results: any[]): any {
         if (res.actionItems) merged.actionItems.push(...res.actionItems);
         if (res.participants) merged.participants.push(...res.participants);
         if (res.keyTopics) merged.keyTopics.push(...res.keyTopics);
+        if (res.tags) merged.tags.push(...res.tags);
 
         if (res.transcript) {
             merged.transcript.push(...res.transcript.map((t: any) => ({
@@ -356,17 +361,17 @@ function mergeAnalyses(results: any[]): any {
     // Deduplicate arrays
     merged.participants = [...new Set(merged.participants)];
     merged.keyTopics = [...new Set(merged.keyTopics)];
-    merged.tags = merged.keyTopics.slice(0, 5); // Use top 5 topics as tags
+    merged.tags = [...new Set(merged.tags)].slice(0, 5); // Top 5 tags
 
     // Generate intelligent title
-    if (merged.keyTopics.length > 0) {
-        const mainTopic = merged.keyTopics[0];
-        const category = merged.decisions.length > 0 ? "Reunión de Decisiones" :
-            merged.actionItems.length > 0 ? "Reunión de Trabajo" : "Grabación";
-        merged.title = `${category}: ${mainTopic}`;
-        merged.category = category;
+    // Prefer the title from the first chunk that has one, or the longest one
+    const titles = results.map(r => r.title).filter(t => t && t.length > 5 && !t.includes("Error"));
+    if (titles.length > 0) {
+        merged.title = titles[0]; // Use the first valid title
+    } else if (merged.tags.length > 0) {
+        merged.title = `Grabación: ${merged.tags[0]}`;
     } else {
-        merged.title = "Grabación Procesada";
+        merged.title = "Nueva Grabación";
     }
 
     // Generate executive summary (first 3 most important points)
