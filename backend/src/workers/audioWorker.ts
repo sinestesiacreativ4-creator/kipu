@@ -41,10 +41,9 @@ const streamPipeline = promisify(pipeline);
 import { modelCircuitBreaker, executeWithBackoff } from '../services/circuitBreaker';
 
 // Model configuration with fallback priority
-const PRIMARY_MODEL = "gemini-1.5-flash";
+const PRIMARY_MODEL = "gemini-2.0-flash";
 const FALLBACK_MODELS = [
-    "gemini-2.5-flash",
-    "gemini-2.0-flash",
+    "gemini-2.0-flash-lite",
     "gemini-1.5-pro"
 ];
 const MAX_RETRIES = 3;

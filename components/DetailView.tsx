@@ -328,14 +328,20 @@ const DetailView: React.FC<DetailViewProps> = ({ recording, onBack, onReanalyze 
               <h3 className="flex items-center gap-2 text-lg font-semibold text-stone-900 dark:text-white mb-4">
                 <List className="text-secondary" size={20} /> Puntos Clave
               </h3>
-              <ul className="space-y-3">
-                {analysis.summary.map((point, idx) => (
-                  <li key={idx} className="flex items-start gap-3 text-stone-700 dark:text-stone-300 leading-relaxed">
-                    <span className="mt-1.5 w-1.5 h-1.5 bg-primary rounded-full flex-shrink-0"></span>
-                    {point}
-                  </li>
-                ))}
-              </ul>
+              {analysis.summary.length > 0 ? (
+                <ul className="space-y-3">
+                  {analysis.summary.map((point, idx) => (
+                    <li key={idx} className="flex items-start gap-3 text-stone-700 dark:text-stone-300 leading-relaxed">
+                      <span className="mt-1.5 w-1.5 h-1.5 bg-primary rounded-full flex-shrink-0"></span>
+                      {point}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-stone-500 italic">
+                  No se generaron puntos clave. La grabación podría ser demasiado corta o no contener diálogo claro.
+                </p>
+              )}
             </section>
 
             <section className="bg-white dark:bg-stone-800 p-6 rounded-xl shadow-sm border border-stone-100 dark:border-stone-700">
