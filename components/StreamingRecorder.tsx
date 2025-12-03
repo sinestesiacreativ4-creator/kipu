@@ -68,9 +68,19 @@ const StreamingRecorder: React.FC<StreamingRecorderProps> = ({
             }, 1000);
 
             console.log('[StreamingRecorder] Recording started');
-        } catch (error) {
+        } catch (error: any) {
             console.error('[StreamingRecorder] Failed to start recording:', error);
-            alert('Error al iniciar la grabación. Por favor verifica los permisos del micrófono.');
+
+            if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
+                alert('⚠️ Acceso al micrófono denegado.\n\nPor favor ve a:\nConfiguración -> Safari -> Micrófono\ny permite el acceso, o toca el icono "AA" en la barra de dirección -> Configuración del sitio web.');
+            } else if (error.name === 'NotFoundError') {
+                alert('⚠️ No se encontró ningún micrófono en este dispositivo.');
+            } else if (error.name === 'NotReadableError') {
+                alert('⚠️ El micrófono está siendo usado por otra aplicación o hay un error de hardware.');
+            } else {
+                alert(`⚠️ Error al iniciar la grabación: ${error.name || 'Error desconocido'}\n${error.message || ''}`);
+            }
+
             onCancel();
         }
     };
