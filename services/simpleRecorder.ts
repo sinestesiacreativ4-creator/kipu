@@ -72,15 +72,23 @@ export const simpleRecorder = {
 
             console.log(`[SimpleRecorder] Using MIME type: ${mimeType || 'default'}`);
 
-            this.mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+            const options: MediaRecorderOptions = {
+                audioBitsPerSecond: 128000 // Force 128kbps
+            };
+            if (mimeType) options.mimeType = mimeType;
+
+            this.mediaRecorder = new MediaRecorder(stream, options);
 
             this.mediaRecorder.ondataavailable = (e) => {
                 if (e.data.size > 0) {
+                    console.log(`[SimpleRecorder] Generated chunk: ${e.data.size} bytes`);
                     onChunk(e.data);
                     // Track this upload
                     const uploadPromise = this.sendChunk(e.data, this.mediaRecorder?.mimeType || 'audio/webm')
                         .catch(err => console.error('Chunk upload failed in background:', err));
                     this.pendingUploads.push(uploadPromise);
+                } else {
+                    console.warn('[SimpleRecorder] Generated empty chunk');
                 }
             };
 

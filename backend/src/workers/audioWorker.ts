@@ -438,6 +438,21 @@ const worker = new Worker('audio-processing-queue', async (job: Job) => {
 
             // 2. Split Audio
             console.log(`[Worker] Splitting audio file: ${sourceFilePath}`);
+
+            // Log duration for debugging
+            try {
+                await new Promise<void>((resolve) => {
+                    ffmpeg.ffprobe(sourceFilePath, (err, metadata) => {
+                        if (!err && metadata && metadata.format && metadata.format.duration) {
+                            console.log(`[Worker] Source file duration: ${metadata.format.duration}s`);
+                        } else {
+                            console.log(`[Worker] Could not probe source duration.`);
+                        }
+                        resolve();
+                    });
+                });
+            } catch (e) { console.warn('[Worker] Probe failed', e); }
+
             chunks = await splitAudio(sourceFilePath);
             console.log(`[Worker] Created ${chunks.length} chunks`);
 
