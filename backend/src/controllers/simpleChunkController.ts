@@ -145,6 +145,9 @@ export const SimpleChunkController = {
                 console.log(`[ChunkUpload] Updated existing chunk ${sequence}`);
             }
 
+            // Small delay to ensure FS sync before potential immediate read
+            await new Promise(resolve => setTimeout(resolve, 500));
+
             res.json({ success: true, sequence });
 
         } catch (error: any) {
