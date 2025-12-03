@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
-import { ArrowLeft, List, Download, Folder, CheckCircle2, RefreshCw, MessageSquare, FileText } from 'lucide-react';
+import { ArrowLeft, List, Download, Folder, CheckCircle2, RefreshCw, MessageSquare, FileText, Mic } from 'lucide-react';
 import MeetingChat from './MeetingChat';
+import VoiceChat from './VoiceChat';
 import { Recording, RecordingStatus, ExportOptions } from '../types';
 import { formatTime } from '../utils';
 import { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType } from 'docx';
@@ -13,7 +14,7 @@ interface DetailViewProps {
 }
 
 const DetailView: React.FC<DetailViewProps> = ({ recording, onBack, onReanalyze }) => {
-  const [activeTab, setActiveTab] = useState<'summary' | 'transcript' | 'chat'>('summary');
+  const [activeTab, setActiveTab] = useState<'summary' | 'transcript' | 'chat' | 'voice'>('summary');
   const [showExportModal, setShowExportModal] = useState(false);
   const [isReanalyzing, setIsReanalyzing] = useState(false);
   const [showTimeout, setShowTimeout] = useState(false);
@@ -319,6 +320,18 @@ const DetailView: React.FC<DetailViewProps> = ({ recording, onBack, onReanalyze 
                 Chat AI
               </div>
             </button>
+            <button
+              onClick={() => setActiveTab('voice')}
+              className={`flex-1 px-6 py-3 text-sm font-bold rounded-xl transition-all duration-300 ${activeTab === 'voice'
+                ? 'bg-white dark:bg-stone-700 text-primary shadow-md transform scale-[1.02]'
+                : 'text-stone-500 hover:text-stone-700 dark:text-stone-400 dark:hover:text-stone-200 hover:bg-stone-200/50 dark:hover:bg-stone-700/30'
+                }`}
+            >
+              <div className="flex items-center justify-center gap-2">
+                <Mic size={16} />
+                Voz
+              </div>
+            </button>
           </div>
 
           {/* Summary Tab Content */}
@@ -398,6 +411,11 @@ const DetailView: React.FC<DetailViewProps> = ({ recording, onBack, onReanalyze 
           {/* Chat Tab Content */}
           <div className={`${activeTab === 'chat' ? 'block' : 'hidden'} print:hidden animate-fade-in`}>
             <MeetingChat analysis={analysis} />
+          </div>
+
+          {/* Voice Tab Content */}
+          <div className={`${activeTab === 'voice' ? 'block' : 'hidden'} print:hidden animate-fade-in`}>
+            <VoiceChat recordingId={recording.id} />
           </div>
 
         </div>
