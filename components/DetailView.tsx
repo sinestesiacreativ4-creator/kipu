@@ -288,30 +288,30 @@ const DetailView: React.FC<DetailViewProps> = ({ recording, onBack, onReanalyze 
         <div className="lg:col-span-2 space-y-6">
 
           {/* Tabs (No Print) */}
-          <div className="flex p-1 bg-stone-100 dark:bg-stone-800/50 rounded-xl no-print mb-6">
+          <div className="flex p-1.5 bg-stone-100 dark:bg-stone-800/50 rounded-2xl no-print mb-8 border border-stone-200 dark:border-stone-700">
             <button
               onClick={() => setActiveTab('summary')}
-              className={`flex-1 px-6 py-2.5 text-sm font-medium rounded-lg transition-all duration-200 ${activeTab === 'summary'
-                ? 'bg-white dark:bg-stone-700 text-primary shadow-sm'
-                : 'text-stone-500 hover:text-stone-700 dark:text-stone-400 dark:hover:text-stone-200'
+              className={`flex-1 px-6 py-3 text-sm font-bold rounded-xl transition-all duration-300 ${activeTab === 'summary'
+                ? 'bg-white dark:bg-stone-700 text-primary shadow-md transform scale-[1.02]'
+                : 'text-stone-500 hover:text-stone-700 dark:text-stone-400 dark:hover:text-stone-200 hover:bg-stone-200/50 dark:hover:bg-stone-700/30'
                 }`}
             >
               Resumen Inteligente
             </button>
             <button
               onClick={() => setActiveTab('transcript')}
-              className={`flex-1 px-6 py-2.5 text-sm font-medium rounded-lg transition-all duration-200 ${activeTab === 'transcript'
-                ? 'bg-white dark:bg-stone-700 text-primary shadow-sm'
-                : 'text-stone-500 hover:text-stone-700 dark:text-stone-400 dark:hover:text-stone-200'
+              className={`flex-1 px-6 py-3 text-sm font-bold rounded-xl transition-all duration-300 ${activeTab === 'transcript'
+                ? 'bg-white dark:bg-stone-700 text-primary shadow-md transform scale-[1.02]'
+                : 'text-stone-500 hover:text-stone-700 dark:text-stone-400 dark:hover:text-stone-200 hover:bg-stone-200/50 dark:hover:bg-stone-700/30'
                 }`}
             >
               Transcripción Completa
             </button>
             <button
               onClick={() => setActiveTab('chat')}
-              className={`flex-1 px-6 py-2.5 text-sm font-medium rounded-lg transition-all duration-200 ${activeTab === 'chat'
-                ? 'bg-white dark:bg-stone-700 text-primary shadow-sm'
-                : 'text-stone-500 hover:text-stone-700 dark:text-stone-400 dark:hover:text-stone-200'
+              className={`flex-1 px-6 py-3 text-sm font-bold rounded-xl transition-all duration-300 ${activeTab === 'chat'
+                ? 'bg-white dark:bg-stone-700 text-primary shadow-md transform scale-[1.02]'
+                : 'text-stone-500 hover:text-stone-700 dark:text-stone-400 dark:hover:text-stone-200 hover:bg-stone-200/50 dark:hover:bg-stone-700/30'
                 }`}
             >
               <div className="flex items-center justify-center gap-2">
@@ -366,20 +366,30 @@ const DetailView: React.FC<DetailViewProps> = ({ recording, onBack, onReanalyze 
 
           {/* Transcript Tab Content */}
           <div className={`${activeTab === 'transcript' ? 'block' : 'hidden'} print:block animate-fade-in`}>
-            <div className="bg-white dark:bg-stone-800 rounded-xl shadow-sm border border-stone-100 dark:border-stone-700 divide-y divide-stone-100 dark:divide-stone-700">
+            <div className="bg-white dark:bg-stone-800 rounded-2xl shadow-sm border border-stone-100 dark:border-stone-700 divide-y divide-stone-100 dark:divide-stone-700 overflow-hidden">
               {analysis.transcript.length > 0 ? (
                 analysis.transcript.map((segment, idx) => (
-                  <div key={idx} className="p-4 hover:bg-stone-50 dark:hover:bg-stone-700/30 transition-colors group">
-                    <div className="flex justify-between items-baseline mb-1">
-                      <span className="font-semibold text-sm text-secondary">{segment.speaker}</span>
-                      <span className="text-xs text-stone-400 font-mono group-hover:text-stone-600">{segment.timestamp}</span>
+                  <div key={idx} className="p-6 hover:bg-stone-50 dark:hover:bg-stone-700/30 transition-colors group flex gap-4">
+                    <div className={`w-10 h-10 rounded-full flex-shrink-0 flex items-center justify-center text-white font-bold text-sm shadow-sm ${idx % 2 === 0 ? 'bg-blue-500' : 'bg-amber-500'}`}>
+                      {segment.speaker.charAt(0).toUpperCase()}
                     </div>
-                    <p className="text-stone-700 dark:text-stone-300 leading-relaxed">{segment.text}</p>
+                    <div className="flex-1">
+                      <div className="flex justify-between items-baseline mb-2">
+                        <span className="font-bold text-sm text-stone-900 dark:text-white">{segment.speaker}</span>
+                        <span className="text-xs text-stone-400 font-mono bg-stone-100 dark:bg-stone-700 px-2 py-0.5 rounded opacity-70 group-hover:opacity-100 transition-opacity">
+                          {segment.timestamp}
+                        </span>
+                      </div>
+                      <p className="text-stone-700 dark:text-stone-300 leading-relaxed text-base">
+                        {segment.text}
+                      </p>
+                    </div>
                   </div>
                 ))
               ) : (
-                <div className="p-8 text-center text-stone-500 italic">
-                  No se generó transcripción. El audio podría ser demasiado corto o no contener diálogo claro.
+                <div className="p-12 text-center text-stone-500 italic flex flex-col items-center gap-4">
+                  <FileText size={48} className="text-stone-300" />
+                  <p>No se generó transcripción. El audio podría ser demasiado corto o no contener diálogo claro.</p>
                 </div>
               )}
             </div>

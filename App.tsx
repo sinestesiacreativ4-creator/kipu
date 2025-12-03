@@ -56,25 +56,26 @@ const Dashboard = ({
   return (
     <div className="max-w-6xl mx-auto p-6 md:p-10 animate-fade-in">
       {/* Header */}
-      <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-12 sticky top-0 z-30 py-4 -mx-4 px-4 md:-mx-10 md:px-10 glass rounded-b-2xl transition-all duration-300">
+      {/* Header */}
+      <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-12 sticky top-0 z-30 py-6 -mx-6 px-6 md:-mx-10 md:px-10 glass rounded-b-3xl transition-all duration-300">
         <div>
-          <h1 className="text-4xl font-display font-bold text-stone-900 dark:text-white tracking-tight">
-            Mari Mari, <span className="text-gradient-gold">{user.name}</span>
+          <h1 className="text-3xl md:text-4xl font-display font-bold text-stone-900 dark:text-white tracking-tight">
+            Hola, <span className="text-gradient-gold">{user.name.split(' ')[0]}</span>
           </h1>
-          <p className="text-stone-500 dark:text-stone-400 mt-2 font-light text-lg">
+          <p className="text-stone-500 dark:text-stone-400 mt-1 font-light text-base md:text-lg">
             {recordings.length === 0
-              ? 'Tu archivo está esperando su primera historia.'
-              : `Gestionando ${recordings.length} documentos en tu archivo.`}
+              ? 'Tu archivo está listo para comenzar.'
+              : `${recordings.length} grabaciones guardadas.`}
           </p>
         </div>
         <div className="relative w-full md:w-auto group">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-stone-400 group-focus-within:text-primary transition-colors" size={20} />
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-stone-400 group-focus-within:text-primary transition-colors" size={18} />
           <input
             type="text"
-            placeholder="Buscar en tu sabiduría..."
+            placeholder="Buscar..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full md:w-96 pl-12 pr-6 py-3 bg-white/80 dark:bg-stone-800/80 backdrop-blur-sm border border-stone-200 dark:border-stone-700 rounded-2xl focus:outline-none focus:ring-2 focus:ring-gold/50 focus:border-gold text-base transition-all shadow-sm hover:shadow-md"
+            className="w-full md:w-80 pl-11 pr-5 py-2.5 bg-stone-100/50 dark:bg-stone-800/50 backdrop-blur-sm border border-stone-200 dark:border-stone-700 rounded-full focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary text-sm transition-all"
           />
         </div>
       </header>
@@ -105,31 +106,32 @@ const Dashboard = ({
             {filteredRecordings.map(rec => (
               <div
                 key={rec.id}
-                className="group glass-card p-6 rounded-2xl hover:-translate-y-1 relative overflow-hidden"
+                className="group glass-card p-5 rounded-2xl hover:-translate-y-1 relative overflow-hidden cursor-pointer"
+                onClick={() => onSelectRecording(rec)}
               >
-                <div onClick={() => onSelectRecording(rec)} className="cursor-pointer">
-                  <div className="flex justify-between items-start mb-5">
-                    <div className={`p-3 rounded-xl ${rec.status === RecordingStatus.PROCESSING ? 'bg-gold/10 text-gold-dark' : 'bg-primary/10 text-primary'}`}>
-                      {rec.status === RecordingStatus.PROCESSING ? <Clock size={24} className="animate-spin-slow" /> : <FileAudio size={24} />}
-                    </div>
-                    <span className="text-xs font-medium text-stone-400 font-mono bg-stone-100 dark:bg-stone-800 px-2 py-1 rounded-md">{formatTime(rec.duration)}</span>
+                <div className="flex justify-between items-start mb-4">
+                  <div className={`p-2.5 rounded-xl ${rec.status === RecordingStatus.PROCESSING ? 'bg-amber-100 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400' : 'bg-stone-100 text-stone-600 dark:bg-stone-800 dark:text-stone-300'}`}>
+                    {rec.status === RecordingStatus.PROCESSING ? <Clock size={20} className="animate-spin-slow" /> : <FileAudio size={20} />}
                   </div>
+                  <span className="text-xs font-medium text-stone-400 font-mono bg-stone-50 dark:bg-stone-800/50 px-2 py-1 rounded-md border border-stone-100 dark:border-stone-800">
+                    {formatTime(rec.duration)}
+                  </span>
+                </div>
 
-                  <h3 className="font-display font-bold text-xl text-stone-900 dark:text-stone-100 mb-2 line-clamp-1 group-hover:text-primary transition-colors">
-                    {rec.analysis?.title || "Procesando..."}
-                  </h3>
-                  <p className="text-sm text-stone-500 dark:text-stone-400 mb-6 line-clamp-2 h-10 leading-relaxed">
-                    {rec.analysis?.summary?.[0] || "Esperando resumen de IA..."}
-                  </p>
+                <h3 className="font-display font-bold text-lg text-stone-900 dark:text-stone-100 mb-1.5 line-clamp-1 group-hover:text-primary transition-colors">
+                  {rec.analysis?.title || "Procesando..."}
+                </h3>
+                <p className="text-sm text-stone-500 dark:text-stone-400 mb-4 line-clamp-2 h-10 leading-relaxed">
+                  {rec.analysis?.summary?.[0] || "Esperando resumen de IA..."}
+                </p>
 
-                  <div className="flex items-center gap-2 mt-auto pt-4 border-t border-stone-100 dark:border-stone-800">
-                    <span className="px-2.5 py-1 bg-stone-100 dark:bg-stone-800 text-xs font-medium text-stone-600 dark:text-stone-300 rounded-full">
-                      {rec.analysis?.category || "Sin categoría"}
-                    </span>
-                    <span className="text-xs text-stone-400 ml-auto">
-                      {new Date(rec.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
-                    </span>
-                  </div>
+                <div className="flex items-center gap-2 mt-auto pt-3 border-t border-stone-100 dark:border-stone-800">
+                  <span className="px-2 py-0.5 bg-stone-100 dark:bg-stone-800 text-[10px] uppercase tracking-wider font-bold text-stone-500 dark:text-stone-400 rounded-full">
+                    {rec.analysis?.category || "General"}
+                  </span>
+                  <span className="text-[10px] text-stone-400 ml-auto">
+                    {new Date(rec.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                  </span>
                 </div>
 
                 {/* Delete Button */}
@@ -140,9 +142,9 @@ const Dashboard = ({
                       onDeleteRecording(rec.id);
                     }
                   }}
-                  className="absolute top-4 right-4 p-2 text-stone-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-full opacity-0 group-hover:opacity-100 transition-all transform translate-x-2 group-hover:translate-x-0"
+                  className="absolute top-3 right-3 p-2 text-stone-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-full opacity-0 group-hover:opacity-100 transition-all"
                 >
-                  <Trash2 size={18} />
+                  <Trash2 size={16} />
                 </button>
               </div>
             ))}

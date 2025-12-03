@@ -198,6 +198,8 @@ async function analyzeChunk(
     
     CRÍTICO: Responde SOLO con JSON válido, sin texto adicional.
     
+    OBJETIVO PRINCIPAL: Generar una TRANSCRIPCIÓN VERBATIM (palabra por palabra) completa y precisa.
+    
     Formato requerido:
     {
       "summary": ["Punto clave 1", "Punto clave 2"],
@@ -206,15 +208,16 @@ async function analyzeChunk(
       "participants": ["Nombre 1"],
       "keyTopics": ["Tema 1"],
       "transcript": [
-        {"speaker": "Hablante", "text": "Texto", "timestamp": "MM:SS"}
+        {"speaker": "Hablante", "text": "Texto exacto dicho por el hablante.", "timestamp": "MM:SS"}
       ]
     }
     
-    IMPORTANTE:
-    - Los "decisions" son acuerdos o resoluciones concretas
-    - Los "actionItems" deben incluir responsable entre paréntesis si se menciona
-    - Los "participants" son personas mencionadas o identificables por voz
-    - Los "keyTopics": temas específicos discutidos (ej: "Presupuesto Q1", no "Finanzas")
+    INSTRUCCIONES DETALLADAS:
+    1. TRANSCRIPCIÓN (Prioridad Alta): Debe ser EXHAUSTIVA. Captura cada palabra dicha. No resumas el texto en la sección de transcripción.
+    2. "decisions": Acuerdos o resoluciones concretas.
+    3. "actionItems": Tareas pendientes con responsable entre paréntesis.
+    4. "participants": Personas identificadas por voz.
+    5. "keyTopics": Temas específicos (ej: "Presupuesto Q1", no "Finanzas").
     `;
 
     const executeAnalysis = async () => {
