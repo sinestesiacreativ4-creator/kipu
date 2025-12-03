@@ -50,6 +50,77 @@ const MAX_RETRIES = 3;
 const INITIAL_BACKOFF_MS = 2000; // 2 seconds
 const BACKOFF_MULTIPLIER = 2;
 
+// --- HELPER FUNCTIONS ---
+
+/**
+ * Split audio file into chunks using individual FFmpeg calls
+ * This avoids the pattern issue on Render
+ */
+async function splitAudio(filePath: string, chunkDurationSec: number = 45): Promise<string[]> {
+    try {
+        // 1. Get total duration first
+        const duration = await new Promise<number>((resolve, reject) => {
+            ffmpeg.ffprobe(filePath, (err, metadata) => {
+                if (err) return reject(err);
+                if (!metadata || !metadata.format || !metadata.format.duration) {
+                    return reject(new Error('Could not get file duration'));
+                }
+                resolve(metadata.format.duration);
+            });
+        });
+
+        console.log(`[Worker] File duration: ${duration}s, splitting into ${chunkDurationSec}s segments`);
+
+        // 2. Calculate number of chunks needed
+        const numChunks = Math.ceil(duration / chunkDurationSec);
+        console.log(`[Worker] Will create ${numChunks} chunks`);
+
+        // 3. Create output directory
+        const baseName = path.basename(filePath, path.extname(filePath));
+        const chunkDir = path.join(os.tmpdir(), `${baseName}_chunks`);
+
+        if (!fs.existsSync(chunkDir)) {
+            fs.mkdirSync(chunkDir, { recursive: true, mode: 0o755 });
+        }
+
+        // 4. Split using individual FFmpeg calls (avoids pattern issue)
+        const chunkPaths: string[] = [];
+
+        for (let i = 0; i < numChunks; i++) {
+            const startTime = i * chunkDurationSec;
+            const outputPath = path.join(chunkDir, `chunk_${String(i).padStart(3, '0')}${path.extname(filePath)}`);
+
+            console.log(`[Worker] Creating chunk ${i + 1}/${numChunks} (start: ${startTime}s)`);
+
+            await new Promise<void>((resolve, reject) => {
+                ffmpeg(filePath)
+                    .setStartTime(startTime)
+                    .setDuration(chunkDurationSec)
+                    .outputOptions(['-c', 'copy']) // Fast copy without re-encoding
+                    .save(outputPath)
+                    .on('end', () => {
+                        chunkPaths.push(outputPath);
+                        resolve();
+                    })
+                    .on('error', (err) => {
+                        console.error(`[Worker] Error creating chunk ${i}:`, err);
+                        reject(err);
+                    });
+            });
+        }
+
+        console.log(`[Worker] Successfully created ${chunkPaths.length} chunks`);
+        return chunkPaths.sort();
+
+    } catch (error) {
+        console.error('[Worker] Error in splitAudio:', error);
+        throw error;
+    }
+}
+
+/**
+ * Extract JSON from Gemini response with robust error handling
+ */
 function extractJSON(text: string): any {
     // Strategy 1: Try to find JSON code block
     const codeBlockMatch = text.match(/```json\s*([\s\S]*?)\s*```/);
