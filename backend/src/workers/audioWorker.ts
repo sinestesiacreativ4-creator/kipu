@@ -57,7 +57,18 @@ const BACKOFF_MULTIPLIER = 2;
  */
 async function splitAudio(filePath: string, chunkDurationSec: number = 120): Promise<string[]> {
     return new Promise((resolve, reject) => {
-        const outputPattern = path.join(path.dirname(filePath), `${path.basename(filePath, path.extname(filePath))}_part%03d${path.extname(filePath)}`);
+        // Create a dedicated temp directory for chunks to avoid path issues
+        const baseName = path.basename(filePath, path.extname(filePath));
+        const chunkDir = path.join(os.tmpdir(), `${baseName}_chunks`);
+
+        if (!fs.existsSync(chunkDir)) {
+            fs.mkdirSync(chunkDir, { recursive: true });
+        }
+
+        // Simple pattern: chunk_%03d.ext
+        const outputPattern = path.join(chunkDir, `chunk_%03d${path.extname(filePath)}`);
+
+        console.log(`[Worker] Splitting to: ${outputPattern}`);
 
         ffmpeg(filePath)
             .outputOptions([
@@ -68,15 +79,20 @@ async function splitAudio(filePath: string, chunkDurationSec: number = 120): Pro
             .output(outputPattern)
             .on('end', () => {
                 // Find generated files
-                const dir = path.dirname(filePath);
-                const baseName = path.basename(filePath, path.extname(filePath));
-                const files = fs.readdirSync(dir)
-                    .filter(f => f.startsWith(`${baseName}_part`) && f.endsWith(path.extname(filePath)))
-                    .map(f => path.join(dir, f))
-                    .sort();
-                resolve(files);
+                try {
+                    const files = fs.readdirSync(chunkDir)
+                        .filter(f => f.startsWith('chunk_') && f.endsWith(path.extname(filePath)))
+                        .map(f => path.join(chunkDir, f))
+                        .sort();
+                    resolve(files);
+                } catch (e) {
+                    reject(e);
+                }
             })
-            .on('error', (err) => reject(err))
+            .on('error', (err) => {
+                console.error('[Worker] ffmpeg error:', err);
+                reject(err);
+            })
             .run();
     });
 }
