@@ -802,7 +802,19 @@ const AppContent = () => {
             recordingId={activeRecordingId!}
             onComplete={(recordingId) => {
               console.log('[App] Streaming recording completed:', recordingId);
-              // Recording is already finalized on server, just poll for status
+
+              // Immediately switch to dashboard and show processing state
+              setView('dashboard');
+              setSelectedRecordingId(recordingId);
+
+              // Update the optimistic recording to PROCESSING
+              setRecordings(prev => prev.map(rec =>
+                rec.id === recordingId
+                  ? { ...rec, status: RecordingStatus.PROCESSING, analysis: { ...rec.analysis!, title: 'Procesando con IA...' } }
+                  : rec
+              ));
+
+              // Poll for AI completion in background
               uploadService.pollStatus(recordingId, (status, analysis) => {
                 if (status === 'COMPLETED') {
                   const completedRecording: Recording = {
@@ -826,8 +838,6 @@ const AppContent = () => {
                   setRecordings(prev => prev.map(rec =>
                     rec.id === recordingId ? completedRecording : rec
                   ));
-                  setSelectedRecordingId(recordingId);
-                  setView('detail');
                 } else if (status === 'ERROR') {
                   const errorRecording: Recording = {
                     id: recordingId,
