@@ -459,36 +459,6 @@ const worker = new Worker('audio-processing-queue', async (job: Job) => {
                 const fileBuffer = await connection.getBuffer(fileKey);
                 if (!fileBuffer) throw new Error('File not found in Redis');
                 fs.writeFileSync(sourceFilePath, fileBuffer);
-            } else {
-                console.log(`[Worker] Downloading from Gemini URI not supported for chunking yet.`);
-                throw new Error("Chunking requires file access. Gemini File API storage does not support direct download for chunking.");
-            }
-
-            // 2. Split Audio
-            console.log(`[Worker] Splitting audio file: ${sourceFilePath}`);
-
-            // Log duration for debugging
-            try {
-                await new Promise<void>((resolve) => {
-                    ffmpeg.ffprobe(sourceFilePath, (err, metadata) => {
-                        if (!err && metadata && metadata.format && metadata.format.duration) {
-                            console.log(`[Worker] Source file duration: ${metadata.format.duration}s`);
-                        } else {
-                            console.log(`[Worker] Could not probe source duration.`);
-                        }
-                        resolve();
-                    });
-                });
-            } catch (e) { console.warn('[Worker] Probe failed', e); }
-
-            chunks = await splitAudio(sourceFilePath);
-            console.log(`[Worker] Created ${chunks.length} chunks`);
-
-            // 3. Process Chunks in Parallel Batches
-            const results: any[] = [];
-            const BATCH_SIZE = 3; // Process 3 chunks at a time
-
-            for (let i = 0; i < chunks.length; i += BATCH_SIZE) {
                 const batch = chunks.slice(i, i + BATCH_SIZE);
                 console.log(`[Worker] Processing batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(chunks.length / BATCH_SIZE)} (Chunks ${i + 1}-${i + batch.length})`);
 
