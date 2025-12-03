@@ -7,38 +7,25 @@ const unlink = promisify(fs.unlink);
 const rmdir = promisify(fs.rmdir);
 const stat = promisify(fs.stat);
 
+import { TEMP_FOLDERS } from '../config/upload.config';
+
 export class ChunkUploadService {
-    private readonly UPLOAD_ROOT: string;
-    private readonly TEMP_ROOT: string;
 
     constructor() {
-        // Absolute paths compatible with Render
-        this.UPLOAD_ROOT = path.join(process.cwd(), 'uploads');
-        this.TEMP_ROOT = path.join(this.UPLOAD_ROOT, 'temp');
-
-        this.initFolders();
-    }
-
-    private initFolders() {
-        if (!fs.existsSync(this.UPLOAD_ROOT)) {
-            fs.mkdirSync(this.UPLOAD_ROOT, { recursive: true });
-        }
-        if (!fs.existsSync(this.TEMP_ROOT)) {
-            fs.mkdirSync(this.TEMP_ROOT, { recursive: true });
-        }
+        // No init needed, handled by upload.config.ts
     }
 
     public getChunkDir(fileId: string): string {
         if (!fileId) throw new Error('fileId is required to generate chunk path');
         // Sanitize fileId to prevent path traversal
         const safeFileId = fileId.replace(/[^a-zA-Z0-9-_]/g, '');
-        return path.join(this.TEMP_ROOT, safeFileId);
+        return path.join(TEMP_FOLDERS.chunks, safeFileId);
     }
 
     public getFinalPath(fileName: string): string {
         // Sanitize fileName
         const safeFileName = path.basename(fileName).replace(/[^a-zA-Z0-9.-_]/g, '_');
-        return path.join(this.UPLOAD_ROOT, safeFileName);
+        return path.join(TEMP_FOLDERS.uploads, safeFileName);
     }
 
     public async mergeChunks(fileId: string, fileName: string, totalChunks: number): Promise<string> {
