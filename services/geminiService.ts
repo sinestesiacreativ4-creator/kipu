@@ -201,7 +201,13 @@ export const chatWithMeeting = async (
   userMessage: string
 ): Promise<string> => {
   const model = genAI.getGenerativeModel({
-    model: "gemini-2.5-flash"
+    model: "gemini-2.0-flash",
+    generationConfig: {
+      temperature: 0.7,
+      topP: 0.9,
+      topK: 40,
+      maxOutputTokens: 1024,
+    }
   });
 
   // Construct enhanced context from analysis (with backwards compatibility)
@@ -242,13 +248,17 @@ export const chatWithMeeting = async (
     
     USUARIO: ${userMessage}
     
-    INSTRUCCIONES:
+    INSTRUCCIONES PARA TU RESPUESTA:
     - Responde de manera concisa, útil y basada SOLO en la información de la reunión
-    - Si preguntan por decisiones y no hay en el análisis, di "No se identificaron decisiones específicas en esta reunión"
-    - Si preguntan por participantes y no hay, di "No se identificaron participantes específicos"
-    - Si preguntan por tareas, usa la sección "TAREAS PENDIENTES" si existe
+    - Usa **negritas** para resaltar puntos importantes
+    - Usa listas numeradas o con viñetas cuando sea apropiado
     - Cita timestamps [MM:SS] cuando sea relevante y estén disponibles
+    - Si preguntan por decisiones y no hay, di "No se identificaron decisiones específicas en esta reunión"
+    - Si preguntan por participantes y no hay, di "No se identificaron participantes específicos"
+    - Si preguntan por tareas, usa la sección "TAREAS PENDIENTES"
     - Si no sabes algo o no está en la información, di claramente que no está disponible
+    - Sé proactivo: sugiere información relacionada que pueda ser útil
+    - SIEMPRE responde en español
     
     ASISTENTE:
   `;
