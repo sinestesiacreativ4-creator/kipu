@@ -481,8 +481,11 @@ const worker = new Worker('audio-processing-queue', async (job: Job) => {
                 });
             } catch (e) { console.warn('[Worker] Probe failed', e); }
 
-            chunks = await splitAudio(sourceFilePath);
-            console.log(`[Worker] Created ${chunks.length} chunks`);
+            // 2. TEMPORARY: Skip splitting due to FFmpeg pattern error on Render
+            // Process the whole file as one chunk
+            console.log(`[Worker] Processing entire file without splitting (temporary workaround)`);
+            chunks = [sourceFilePath];
+            console.log(`[Worker] Using 1 chunk (whole file)`);
 
             // 3. Process Chunks in Parallel Batches
             const results: any[] = [];
