@@ -88,6 +88,12 @@ export const simpleRecorder = {
             this.mediaRecorder.ondataavailable = (e) => {
                 if (e.data.size > 0) {
                     console.log(`[SimpleRecorder] Generated chunk: ${e.data.size} bytes`);
+
+                    // Warn if chunk is suspiciously small (e.g. < 5KB for 5s segment)
+                    if (e.data.size < 5120) {
+                        console.warn(`[SimpleRecorder] ⚠️ Small chunk detected (${e.data.size} bytes). Check microphone input.`);
+                    }
+
                     onChunk(e.data);
                     // Track this upload
                     const uploadPromise = this.sendChunk(e.data, this.mediaRecorder?.mimeType || 'audio/webm')
