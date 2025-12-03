@@ -5,6 +5,7 @@ import prisma from '../services/prisma';
 import { TEMP_FOLDERS } from '../config/upload.config';
 import { assembleRecording, ChunkMetadata } from '../services/masterAssembler';
 import { createError } from '../middleware/errorHandler';
+import { audioQueue } from '../services/queue';
 
 export const SimpleChunkController = {
     /**
@@ -153,7 +154,14 @@ export const SimpleChunkController = {
                 }
             });
 
-            // 6. Cleanup chunks
+            // 6. Enqueue AI processing job
+            console.log(`[SimpleFinalize] Enqueuing AI processing for ${recordingId}`);
+            await audioQueue.add('process-audio', {
+                recordingId,
+                filePath: finalPath
+            });
+
+            // 7. Cleanup chunks
             await prisma.recordingChunk.deleteMany({ where: { recordingId } });
             const chunkDir = path.join(TEMP_FOLDERS.chunks, recordingId);
             if (fs.existsSync(chunkDir)) {
