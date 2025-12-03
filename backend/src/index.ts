@@ -140,6 +140,13 @@ app.listen(PORT, () => {
     console.log(`\n🚀 Server running on port ${PORT}`);
     console.log(`👉 Health check: http://localhost:${PORT}/health`);
     console.log(`👉 Allowed Origins: ${allowedOrigins.join(', ')}\n`);
+
+    // Start audio worker for AI processing
+    import('./workers/audioWorker').then(() => {
+        console.log('✅ Audio processing worker initialized');
+    }).catch((err) => {
+        console.error('❌ Failed to start audio worker:', err);
+    });
 });
 
 // Handle Uncaught Errors
