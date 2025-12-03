@@ -16,6 +16,7 @@ import demoRoutes from './controllers/demoController';
 import organizationRoutes from './controllers/organizationController';
 import recordingRoutes from './controllers/recordingController';
 import profileRoutes from './controllers/profileController';
+import statusRoutes from './controllers/statusController';
 import { errorHandler } from './middleware/errorHandler';
 import { TempManager } from './services/tempManager';
 import { initTempFolders } from './config/upload.config';
@@ -116,6 +117,7 @@ app.use('/api', demoRoutes);   // Demo data initialization (TEMPORARY)
 app.use('/api', organizationRoutes); // Organization & Login routes
 app.use('/api', recordingRoutes); // Recording queries and management
 app.use('/api', profileRoutes); // Profile queries
+app.use('/api', statusRoutes); // Status polling for recordings
 app.use('/', robustUploadRoutes); // Legacy/Robust routes
 
 // C. 404 Handler
