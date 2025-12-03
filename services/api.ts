@@ -55,7 +55,8 @@ export const api = {
     // =============== RECORDINGS ===============
 
     async getRecordings(userId: string, organizationId: string) {
-        const response = await fetch(`${API_URL}/api/recordings/${userId}/${organizationId}`);
+        // Backend expects /api/recordings/:organizationId
+        const response = await fetch(`${API_URL}/api/recordings/${organizationId}`);
         if (!response.ok) throw new Error('Error fetching recordings');
         return response.json();
     },
