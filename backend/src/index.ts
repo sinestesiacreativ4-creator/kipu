@@ -102,8 +102,12 @@ app.use('/api', chunkRoutes);  // Chunk routes (upload-chunk, finalize-recording
 import { SimpleChunkController } from './controllers/simpleChunkController';
 
 // Raw body parser for chunks ONLY
+// Raw body parser for chunks ONLY
 app.post('/api/chunks/:recordingId',
-    express.raw({ type: 'video/webm', limit: '50mb' }),
+    express.raw({
+        type: ['video/webm', 'audio/webm', 'audio/mp4', 'audio/aac', 'audio/ogg', 'application/octet-stream'],
+        limit: '50mb'
+    }),
     SimpleChunkController.uploadChunk
 );
 
