@@ -50,83 +50,6 @@ const MAX_RETRIES = 3;
 const INITIAL_BACKOFF_MS = 2000; // 2 seconds
 const BACKOFF_MULTIPLIER = 2;
 
-// --- HELPER FUNCTIONS ---
-
-/**
- * Split audio file into chunks
- * Optimized: 45s chunks for better context/token balance
- */
-async function splitAudio(filePath: string, chunkDurationSec: number = 45): Promise<string[]> {
-    return new Promise((resolve, reject) => {
-        try {
-            // Create a dedicated temp directory for chunks to avoid path issues
-            const baseName = path.basename(filePath, path.extname(filePath));
-            const chunkDir = path.join(os.tmpdir(), `${baseName}_chunks`);
-
-            console.log(`[Worker] Creating chunk directory: ${chunkDir}`);
-
-            // Ensure directory exists with proper permissions
-            if (!fs.existsSync(chunkDir)) {
-                fs.mkdirSync(chunkDir, { recursive: true, mode: 0o755 });
-                console.log(`[Worker] Created directory: ${chunkDir}`);
-            } else {
-                console.log(`[Worker] Directory already exists: ${chunkDir}`);
-            }
-
-            // Verify directory is writable
-            try {
-                fs.accessSync(chunkDir, fs.constants.W_OK);
-                console.log(`[Worker] Directory is writable`);
-            } catch (e) {
-                throw new Error(`Directory not writable: ${chunkDir}`);
-            }
-
-            // Simple pattern: chunk_%03d.ext
-            const outputPattern = path.join(chunkDir, `chunk_%03d${path.extname(filePath)}`);
-
-            console.log(`[Worker] Splitting to: ${outputPattern} (Duration: ${chunkDurationSec}s)`);
-
-            ffmpeg(filePath)
-                .outputOptions([
-                    `-f`, `segment`,
-                    `-segment_time`, `${chunkDurationSec}`,
-                    `-c`, `copy`, // Fast copy without re-encoding
-                    `-reset_timestamps`, `1` // Reset timestamps for each segment
-                ])
-                .output(outputPattern)
-                .on('start', (cmd) => {
-                    console.log(`[Worker] FFmpeg split command: ${cmd}`);
-                })
-                .on('end', () => {
-                    // Find generated files
-                    try {
-                        const files = fs.readdirSync(chunkDir)
-                            .filter(f => f.startsWith('chunk_') && f.endsWith(path.extname(filePath)))
-                            .map(f => path.join(chunkDir, f))
-                            .sort();
-
-                        console.log(`[Worker] Split complete. Generated ${files.length} files`);
-                        resolve(files);
-                    } catch (e) {
-                        console.error('[Worker] Error reading chunk directory:', e);
-                        reject(e);
-                    }
-                })
-                .on('error', (err) => {
-                    console.error('[Worker] ffmpeg split error:', err);
-                    reject(err);
-                })
-                .run();
-        } catch (error) {
-            console.error('[Worker] Error in splitAudio setup:', error);
-            reject(error);
-        }
-    });
-}
-
-/**
- * Extract JSON from Gemini response with robust error handling
- */
 function extractJSON(text: string): any {
     // Strategy 1: Try to find JSON code block
     const codeBlockMatch = text.match(/```json\s*([\s\S]*?)\s*```/);
@@ -481,11 +404,38 @@ const worker = new Worker('audio-processing-queue', async (job: Job) => {
                 });
             } catch (e) { console.warn('[Worker] Probe failed', e); }
 
-            // 2. TEMPORARY: Skip splitting due to FFmpeg pattern error on Render
-            // Process the whole file as one chunk
-            console.log(`[Worker] Processing entire file without splitting (temporary workaround)`);
-            chunks = [sourceFilePath];
-            console.log(`[Worker] Using 1 chunk (whole file)`);
+            // 2. Check duration and split if needed
+            let fileDuration = 0;
+            try {
+                await new Promise<void>((resolve) => {
+                    ffmpeg.ffprobe(sourceFilePath, (err, metadata) => {
+                        if (!err && metadata && metadata.format && metadata.format.duration) {
+                            fileDuration = metadata.format.duration;
+                            console.log(`[Worker] Source file duration: ${fileDuration}s`);
+                        }
+                        resolve();
+                    });
+                });
+            } catch (e) {
+                console.warn('[Worker] Probe failed', e);
+            }
+
+            // If file is short (< 2 minutes), process directly without splitting
+            if (fileDuration > 0 && fileDuration < 120) {
+                console.log(`[Worker] File is short (${fileDuration}s). Processing without splitting.`);
+                chunks = [sourceFilePath];
+            } else {
+                // For longer files, split into manageable chunks
+                console.log(`[Worker] File is long (${fileDuration}s). Splitting into 45s segments...`);
+                try {
+                    chunks = await splitAudio(sourceFilePath);
+                    console.log(`[Worker] Created ${chunks.length} chunks`);
+                } catch (splitError: any) {
+                    console.error(`[Worker] Split failed:`, splitError.message);
+                    console.log(`[Worker] Falling back to processing entire file`);
+                    chunks = [sourceFilePath];
+                }
+            }
 
             // 3. Process Chunks in Parallel Batches
             const results: any[] = [];
