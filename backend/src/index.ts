@@ -95,11 +95,28 @@ app.get('/health', (req, res) => {
 // B. API Routes
 app.use('/api', uploadRoutes); // Legacy routes
 app.use('/api', chunkRoutes);  // Chunk routes (upload-chunk, finalize-recording)
+// ==========================================
+// SIMPLE RECORDER ROUTES (Raw Binary)
+// ==========================================
+import { SimpleChunkController } from './controllers/simpleChunkController';
+
+// Raw body parser for chunks ONLY
+app.post('/api/chunks/:recordingId',
+    express.raw({ type: 'video/webm', limit: '50mb' }),
+    SimpleChunkController.uploadChunk
+);
+
+app.post('/api/finalize/:recordingId',
+    express.json(),
+    SimpleChunkController.finalize
+);
+
+// Standard API Routes
 app.use('/api', demoRoutes);   // Demo data initialization (TEMPORARY)
 app.use('/api', organizationRoutes); // Organization & Login routes
 app.use('/api', recordingRoutes); // Recording queries and management
 app.use('/api', profileRoutes); // Profile queries
-app.use('/', robustUploadRoutes); // New robust routes (/upload/chunk)
+app.use('/', robustUploadRoutes); // Legacy/Robust routes
 
 // C. 404 Handler
 app.use((req: Request, res: Response) => {
