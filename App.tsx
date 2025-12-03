@@ -298,7 +298,7 @@ const AppContent = () => {
       const intervalId = setInterval(async () => {
         try {
           console.log('[Polling] Checking for updates...');
-          const updatedRecordings = await api.getRecordings(currentUser.id, currentOrg.id);
+          const updatedRecordings = await api.getRecordings(currentUser.id, currentOrg.id) as Recording[];
 
           // Merge backend state with local optimistic state
           setRecordings(prev => {
@@ -807,8 +807,8 @@ const AppContent = () => {
             onComplete={(recordingId) => {
               console.log('[App] Streaming recording completed:', recordingId);
 
-              // Immediately switch to dashboard and show processing state
-              setView('dashboard');
+              // Immediately switch to detail view to show processing state
+              setView('detail');
               setSelectedRecordingId(recordingId);
 
               // Update the optimistic recording to PROCESSING

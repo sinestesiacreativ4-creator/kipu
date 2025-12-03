@@ -18,11 +18,14 @@ export const simpleRecorder = {
     userId: null as string | null,
     organizationId: null as string | null,
 
+    pendingUploads: [] as Promise<void>[],
+
     async startRecording(onChunk: (data: Blob) => void, userId?: string, organizationId?: string) {
         this.recordingId = uuidv4();
         this.chunkSequence = 0;
         this.userId = userId || null;
         this.organizationId = organizationId || null;
+        this.pendingUploads = [];
 
         try {
             let stream: MediaStream;
@@ -71,10 +74,13 @@ export const simpleRecorder = {
 
             this.mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
 
-            this.mediaRecorder.ondataavailable = async (e) => {
+            this.mediaRecorder.ondataavailable = (e) => {
                 if (e.data.size > 0) {
                     onChunk(e.data);
-                    await this.sendChunk(e.data, this.mediaRecorder?.mimeType || 'audio/webm');
+                    // Track this upload
+                    const uploadPromise = this.sendChunk(e.data, this.mediaRecorder?.mimeType || 'audio/webm')
+                        .catch(err => console.error('Chunk upload failed in background:', err));
+                    this.pendingUploads.push(uploadPromise);
                 }
             };
 
@@ -131,7 +137,13 @@ export const simpleRecorder = {
                 this.stream?.getTracks().forEach(t => t.stop());
 
                 try {
-                    console.log(`[SimpleRecorder] Finalizing ${this.recordingId}...`);
+                    console.log(`[SimpleRecorder] Stopping... Waiting for ${this.pendingUploads.length} chunks to upload...`);
+
+                    // Wait for all pending uploads to finish
+                    await Promise.all(this.pendingUploads);
+
+                    console.log(`[SimpleRecorder] All chunks uploaded. Finalizing ${this.recordingId}...`);
+
                     const response = await fetch(`${API_URL}/api/finalize/${this.recordingId}`, {
                         method: 'POST'
                     });
