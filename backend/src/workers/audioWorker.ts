@@ -58,43 +58,69 @@ const BACKOFF_MULTIPLIER = 2;
  */
 async function splitAudio(filePath: string, chunkDurationSec: number = 45): Promise<string[]> {
     return new Promise((resolve, reject) => {
-        // Create a dedicated temp directory for chunks to avoid path issues
-        const baseName = path.basename(filePath, path.extname(filePath));
-        const chunkDir = path.join(os.tmpdir(), `${baseName}_chunks`);
+        try {
+            // Create a dedicated temp directory for chunks to avoid path issues
+            const baseName = path.basename(filePath, path.extname(filePath));
+            const chunkDir = path.join(os.tmpdir(), `${baseName}_chunks`);
 
-        if (!fs.existsSync(chunkDir)) {
-            fs.mkdirSync(chunkDir, { recursive: true });
+            console.log(`[Worker] Creating chunk directory: ${chunkDir}`);
+
+            // Ensure directory exists with proper permissions
+            if (!fs.existsSync(chunkDir)) {
+                fs.mkdirSync(chunkDir, { recursive: true, mode: 0o755 });
+                console.log(`[Worker] Created directory: ${chunkDir}`);
+            } else {
+                console.log(`[Worker] Directory already exists: ${chunkDir}`);
+            }
+
+            // Verify directory is writable
+            try {
+                fs.accessSync(chunkDir, fs.constants.W_OK);
+                console.log(`[Worker] Directory is writable`);
+            } catch (e) {
+                throw new Error(`Directory not writable: ${chunkDir}`);
+            }
+
+            // Simple pattern: chunk_%03d.ext
+            const outputPattern = path.join(chunkDir, `chunk_%03d${path.extname(filePath)}`);
+
+            console.log(`[Worker] Splitting to: ${outputPattern} (Duration: ${chunkDurationSec}s)`);
+
+            ffmpeg(filePath)
+                .outputOptions([
+                    `-f`, `segment`,
+                    `-segment_time`, `${chunkDurationSec}`,
+                    `-c`, `copy`, // Fast copy without re-encoding
+                    `-reset_timestamps`, `1` // Reset timestamps for each segment
+                ])
+                .output(outputPattern)
+                .on('start', (cmd) => {
+                    console.log(`[Worker] FFmpeg split command: ${cmd}`);
+                })
+                .on('end', () => {
+                    // Find generated files
+                    try {
+                        const files = fs.readdirSync(chunkDir)
+                            .filter(f => f.startsWith('chunk_') && f.endsWith(path.extname(filePath)))
+                            .map(f => path.join(chunkDir, f))
+                            .sort();
+
+                        console.log(`[Worker] Split complete. Generated ${files.length} files`);
+                        resolve(files);
+                    } catch (e) {
+                        console.error('[Worker] Error reading chunk directory:', e);
+                        reject(e);
+                    }
+                })
+                .on('error', (err) => {
+                    console.error('[Worker] ffmpeg split error:', err);
+                    reject(err);
+                })
+                .run();
+        } catch (error) {
+            console.error('[Worker] Error in splitAudio setup:', error);
+            reject(error);
         }
-
-        // Simple pattern: chunk_%03d.ext
-        const outputPattern = path.join(chunkDir, `chunk_%03d${path.extname(filePath)}`);
-
-        console.log(`[Worker] Splitting to: ${outputPattern} (Duration: ${chunkDurationSec}s)`);
-
-        ffmpeg(filePath)
-            .outputOptions([
-                `-f segment`,
-                `-segment_time ${chunkDurationSec}`,
-                `-c copy` // Fast copy without re-encoding
-            ])
-            .output(outputPattern)
-            .on('end', () => {
-                // Find generated files
-                try {
-                    const files = fs.readdirSync(chunkDir)
-                        .filter(f => f.startsWith('chunk_') && f.endsWith(path.extname(filePath)))
-                        .map(f => path.join(chunkDir, f))
-                        .sort();
-                    resolve(files);
-                } catch (e) {
-                    reject(e);
-                }
-            })
-            .on('error', (err) => {
-                console.error('[Worker] ffmpeg error:', err);
-                reject(err);
-            })
-            .run();
     });
 }
 
