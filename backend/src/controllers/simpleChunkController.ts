@@ -157,7 +157,7 @@ export const SimpleChunkController = {
     },
 
     /**
-     * Finalize recording
+     * Finalize recording - Binary concatenation method (robust for MediaRecorder)
      * POST /api/finalize/:recordingId
      */
     async finalize(req: Request, res: Response) {
@@ -182,41 +182,47 @@ export const SimpleChunkController = {
             const avgSize = totalSize / chunks.length;
             console.log(`[Finalize] Assembling ${chunks.length} chunks. Total size: ${totalSize} bytes. Avg chunk size: ${Math.round(avgSize)} bytes.`);
 
-            if (avgSize < 10000) {
-                console.warn('[Finalize] Chunks are very small. Listing sizes:');
-                chunks.forEach(c => console.log(`Seq ${c.sequence}: ${c.size} bytes`));
+            // 3. Binary Concatenation (Robust for MediaRecorder stream segments)
+            console.log(`[Finalize] Using binary concatenation for ${chunks.length} chunks...`);
+
+            const chunkBuffers: Buffer[] = [];
+            for (const chunk of chunks) {
+                if (fs.existsSync(chunk.filePath)) {
+                    chunkBuffers.push(fs.readFileSync(chunk.filePath));
+                } else {
+                    console.warn(`[Finalize] Chunk file missing: ${chunk.filePath}`);
+                }
             }
 
-            // 3. Use FFmpeg concat protocol (handles fragmented streams better than binary concat)
-            // Create a concat file listing all chunks
-            const chunkDir = path.join(TEMP_FOLDERS.chunks, recordingId);
-            const concatListPath = path.join(chunkDir, 'concat.txt');
+            if (chunkBuffers.length === 0) {
+                throw new Error('No chunk files found on disk');
+            }
 
-            // Build concat list with proper escaping
-            const concatContent = chunks
-                .map(c => `file '${c.filePath.replace(/'/g, "'\\''")}'`)
-                .join('\n');
+            const rawBuffer = Buffer.concat(chunkBuffers);
 
-            fs.writeFileSync(concatListPath, concatContent);
-            console.log(`[Finalize] Created concat list with ${chunks.length} chunks`);
+            if (rawBuffer.length === 0) {
+                throw new Error('Assembled audio is empty (0 bytes)');
+            }
 
             // Ensure merged dir exists
             if (!fs.existsSync(TEMP_FOLDERS.merged)) {
                 fs.mkdirSync(TEMP_FOLDERS.merged, { recursive: true });
             }
 
+            const rawExt = chunks[0].mimeType.includes('mp4') ? '.mp4' : '.webm';
+            const rawFilename = `${recordingId}_raw${rawExt}`;
+            const rawPath = path.join(TEMP_FOLDERS.merged, rawFilename);
+
+            fs.writeFileSync(rawPath, rawBuffer);
+            console.log(`[Finalize] Binary concatenation complete: ${rawPath} (${rawBuffer.length} bytes)`);
+
+            // 4. Transcode with FFmpeg (fixes timestamps, ensures AAC/MP4)
             const finalFilename = `${recordingId}_final.mp4`;
             const finalPath = path.join(TEMP_FOLDERS.merged, finalFilename);
 
-            // 4. Use FFmpeg with concat demuxer + transcode
-            console.log(`[Finalize] Processing with FFmpeg concat demuxer...`);
+            console.log(`[Finalize] Transcoding to AAC/MP4...`);
             await new Promise<void>((resolve, reject) => {
-                ffmpeg()
-                    .input(concatListPath)
-                    .inputOptions([
-                        '-f', 'concat',
-                        '-safe', '0'
-                    ])
+                ffmpeg(rawPath)
                     .outputOptions([
                         '-c:a', 'aac',       // Re-encode to AAC
                         '-b:a', '128k',      // 128k bitrate
@@ -274,8 +280,12 @@ export const SimpleChunkController = {
             });
 
             // 8. Cleanup
-            // Delete chunks
+            // Delete chunks and raw file
             await prisma.recordingChunk.deleteMany({ where: { recordingId } });
+            if (fs.existsSync(rawPath)) {
+                try { fs.unlinkSync(rawPath); } catch { }
+            }
+            const chunkDir = path.join(TEMP_FOLDERS.chunks, recordingId);
             if (fs.existsSync(chunkDir)) {
                 fs.rmSync(chunkDir, { recursive: true, force: true });
             }
