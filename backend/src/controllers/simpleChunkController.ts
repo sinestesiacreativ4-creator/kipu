@@ -6,6 +6,13 @@ import { TEMP_FOLDERS } from '../config/upload.config';
 import { assembleRecording, ChunkMetadata } from '../services/masterAssembler';
 import { createError } from '../middleware/errorHandler';
 import { audioQueue } from '../services/queue';
+import ffmpeg from 'fluent-ffmpeg';
+import ffmpegPath from 'ffmpeg-static';
+
+// Configure ffmpeg
+if (ffmpegPath) {
+    ffmpeg.setFfmpegPath(ffmpegPath);
+}
 
 export const SimpleChunkController = {
     /**
@@ -35,7 +42,13 @@ export const SimpleChunkController = {
             }
 
             // 2. Write raw body to file
-            const filename = `chunk_${String(sequence).padStart(6, '0')}.webm`;
+            const contentType = req.headers['content-type'] || 'video/webm';
+            let ext = '.webm';
+            if (contentType.includes('mp4') || contentType.includes('m4a')) ext = '.mp4';
+            else if (contentType.includes('aac')) ext = '.aac';
+            else if (contentType.includes('ogg')) ext = '.ogg';
+
+            const filename = `chunk_${String(sequence).padStart(6, '0')}${ext}`;
             const filePath = path.join(chunkDir, filename);
 
             // req.body is a Buffer because we use express.raw() in index.ts
@@ -86,7 +99,7 @@ export const SimpleChunkController = {
                     sequence,
                     filePath,
                     size: req.body.length,
-                    mimeType: 'video/webm'
+                    mimeType: contentType
                 }
             });
 
@@ -141,7 +154,10 @@ export const SimpleChunkController = {
             }
 
             // 3. Create concatenated file
-            const finalFilename = `${recordingId}_final.webm`;
+            // Check if we have non-webm files (need ffmpeg)
+            const hasNonWebm = chunks.some(c => !c.mimeType.includes('webm'));
+            const outputExt = hasNonWebm ? '.mp4' : '.webm';
+            const finalFilename = `${recordingId}_final${outputExt}`;
             const finalPath = path.join(TEMP_FOLDERS.merged, finalFilename);
 
             // Ensure merged directory exists
@@ -149,11 +165,39 @@ export const SimpleChunkController = {
                 fs.mkdirSync(TEMP_FOLDERS.merged, { recursive: true });
             }
 
-            // Write concatenated file
-            const finalBuffer = Buffer.concat(chunkBuffers);
-            fs.writeFileSync(finalPath, finalBuffer);
+            if (hasNonWebm) {
+                console.log(`[SimpleFinalize] Detected non-webm chunks. Using ffmpeg for concatenation.`);
 
-            console.log(`[SimpleFinalize] Assembled ${chunkBuffers.length} chunks into ${finalPath} (${totalSize} bytes)`);
+                // Create a file list for ffmpeg
+                const listPath = path.join(TEMP_FOLDERS.chunks, recordingId, 'files.txt');
+                const fileListContent = chunks
+                    .map(c => `file '${c.filePath.replace(/\\/g, '/')}'`)
+                    .join('\n');
+
+                fs.writeFileSync(listPath, fileListContent);
+
+                await new Promise<void>((resolve, reject) => {
+                    ffmpeg()
+                        .input(listPath)
+                        .inputOptions(['-f', 'concat', '-safe', '0'])
+                        .outputOptions(['-c', 'copy'])
+                        .save(finalPath)
+                        .on('end', () => resolve())
+                        .on('error', (err) => reject(err));
+                });
+
+                // Update total size from generated file
+                const stats = fs.statSync(finalPath);
+                totalSize = stats.size;
+
+            } else {
+                // Write concatenated file (Binary concat for WebM)
+                const finalBuffer = Buffer.concat(chunkBuffers);
+                fs.writeFileSync(finalPath, finalBuffer);
+                totalSize = finalBuffer.length;
+            }
+
+            console.log(`[SimpleFinalize] Assembled ${chunks.length} chunks into ${finalPath} (${totalSize} bytes)`);
 
             // 4. Estimate duration (5 seconds per chunk)
             const estimatedDuration = chunks.length * 5;

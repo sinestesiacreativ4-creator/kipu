@@ -44,18 +44,37 @@ export const simpleRecorder = {
             }
             this.stream = stream;
 
-            // Prefer webm/opus
-            let mimeType = 'audio/webm;codecs=opus';
-            if (!MediaRecorder.isTypeSupported(mimeType)) {
-                mimeType = 'audio/webm';
+            // Detect supported MIME type
+            const mimeTypes = [
+                'audio/webm;codecs=opus',
+                'audio/webm',
+                'audio/mp4', // iOS 14.5+
+                'audio/aac', // iOS fallback
+                'audio/ogg;codecs=opus'
+            ];
+
+            let mimeType = '';
+            for (const type of mimeTypes) {
+                if (MediaRecorder.isTypeSupported(type)) {
+                    mimeType = type;
+                    break;
+                }
             }
 
-            this.mediaRecorder = new MediaRecorder(stream, { mimeType });
+            if (!mimeType) {
+                console.warn('[SimpleRecorder] No common MIME type supported, letting browser choose default');
+                // Empty string lets browser choose default
+                mimeType = '';
+            }
+
+            console.log(`[SimpleRecorder] Using MIME type: ${mimeType || 'default'}`);
+
+            this.mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
 
             this.mediaRecorder.ondataavailable = async (e) => {
                 if (e.data.size > 0) {
                     onChunk(e.data);
-                    await this.sendChunk(e.data);
+                    await this.sendChunk(e.data, this.mediaRecorder?.mimeType || 'audio/webm');
                 }
             };
 
@@ -71,15 +90,15 @@ export const simpleRecorder = {
         }
     },
 
-    async sendChunk(blob: Blob) {
+    async sendChunk(blob: Blob, mimeType: string = 'audio/webm') {
         if (!this.recordingId) return;
 
         const sequence = this.chunkSequence++;
-        console.log(`[SimpleRecorder] Sending chunk ${sequence} (${blob.size} bytes)`);
+        console.log(`[SimpleRecorder] Sending chunk ${sequence} (${blob.size} bytes) type: ${mimeType}`);
 
         try {
             const headers: Record<string, string> = {
-                'Content-Type': 'video/webm',
+                'Content-Type': mimeType, // Use actual mime type
                 'x-chunk-index': sequence.toString()
             };
 
