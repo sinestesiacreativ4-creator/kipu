@@ -73,9 +73,15 @@ export const simpleRecorder = {
             console.log(`[SimpleRecorder] Using MIME type: ${mimeType || 'default'}`);
 
             const options: MediaRecorderOptions = {
-                audioBitsPerSecond: 128000 // Force 128kbps
+                audioBitsPerSecond: 128000, // Force 128kbps
+                mimeType: mimeType || undefined
             };
-            if (mimeType) options.mimeType = mimeType;
+
+            // Try to set channel count if supported (not all browsers support this in options)
+            try {
+                // @ts-ignore - channelCount is valid in some implementations
+                options.channelCount = 1;
+            } catch (e) { }
 
             this.mediaRecorder = new MediaRecorder(stream, options);
 

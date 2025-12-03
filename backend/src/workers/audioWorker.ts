@@ -215,7 +215,9 @@ async function analyzeChunk(
     const prompt = `
     Analiza este SEGMENTO ${index + 1} de ${total} de una grabación de audio.
     
-    CRÍTICO: Responde SOLO con JSON válido.
+    CRÍTICO: 
+    1. Responde SOLO con JSON válido.
+    2. IDIOMA DE SALIDA: ESPAÑOL (Siempre).
     
     OBJETIVO: Realizar un análisis EXHAUSTIVO y PROFESIONAL del audio.
     
@@ -233,7 +235,7 @@ async function analyzeChunk(
     }
     
     INSTRUCCIONES DE CALIDAD:
-    1. TRANSCRIPCIÓN: Prioridad MÁXIMA. Debe ser VERBATIM (palabra por palabra). No resumas. Captura todo.
+    1. TRANSCRIPCIÓN: Prioridad MÁXIMA. Debe ser VERBATIM (palabra por palabra). No resumas. Captura todo. Si el audio es ininteligible, indícalo.
     2. RESUMEN: Extrae los puntos más importantes y decisiones clave.
     3. TAREAS: Identifica claramente quién debe hacer qué.
     4. PARTICIPANTES: Identifica nombres si se mencionan.
