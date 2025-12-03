@@ -105,42 +105,62 @@ export const SimpleChunkController = {
                 });
             }
 
-            // 2. Prepare metadata for assembler
-            const chunkMetadata: ChunkMetadata[] = chunks.map((c: any) => ({
-                chunk_id: c.id,
-                sequence: c.sequence,
-                status: fs.existsSync(c.filePath) ? 'ok' : 'hole',
-                duration: 10, // Estimate
-                worker_id: 0,
-                file_path: c.filePath,
-                timestamp: c.createdAt.getTime()
-            }));
+            console.log(`[SimpleFinalize] Found ${chunks.length} chunks`);
 
-            // 3. Assemble
-            const result = await assembleRecording(recordingId, chunkMetadata);
+            // 2. Concatenate chunks (simple binary concat - webm supports this)
+            const chunkBuffers: Buffer[] = [];
+            let totalSize = 0;
 
-            if (!result.success) {
-                throw new Error(result.error || 'Assembly failed');
+            for (const chunk of chunks) {
+                if (fs.existsSync(chunk.filePath)) {
+                    const buffer = fs.readFileSync(chunk.filePath);
+                    chunkBuffers.push(buffer);
+                    totalSize += buffer.length;
+                } else {
+                    console.warn(`[SimpleFinalize] Chunk file missing: ${chunk.filePath}`);
+                }
             }
 
-            // 4. Update Recording
+            if (chunkBuffers.length === 0) {
+                throw new Error('No chunk files found on disk');
+            }
+
+            // 3. Create concatenated file
+            const finalFilename = `${recordingId}_final.webm`;
+            const finalPath = path.join(TEMP_FOLDERS.merged, finalFilename);
+
+            // Ensure merged directory exists
+            if (!fs.existsSync(TEMP_FOLDERS.merged)) {
+                fs.mkdirSync(TEMP_FOLDERS.merged, { recursive: true });
+            }
+
+            // Write concatenated file
+            const finalBuffer = Buffer.concat(chunkBuffers);
+            fs.writeFileSync(finalPath, finalBuffer);
+
+            console.log(`[SimpleFinalize] Assembled ${chunkBuffers.length} chunks into ${finalPath} (${totalSize} bytes)`);
+
+            // 4. Estimate duration (5 seconds per chunk)
+            const estimatedDuration = chunks.length * 5;
+
+            // 5. Update Recording
             await prisma.recording.update({
                 where: { id: recordingId },
                 data: {
-                    audioKey: result.finalPath,
+                    audioKey: finalPath,
                     status: 'PROCESSING',
-                    duration: result.totalDuration
+                    duration: estimatedDuration
                 }
             });
 
-            // 5. Cleanup
+            // 6. Cleanup chunks
             await prisma.recordingChunk.deleteMany({ where: { recordingId } });
             const chunkDir = path.join(TEMP_FOLDERS.chunks, recordingId);
             if (fs.existsSync(chunkDir)) {
                 fs.rmSync(chunkDir, { recursive: true, force: true });
             }
 
-            res.json({ success: true, path: result.finalPath });
+            res.json({ success: true, path: finalPath, duration: estimatedDuration });
 
         } catch (error: any) {
             console.error('[SimpleFinalize] Error:', error);
