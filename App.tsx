@@ -800,6 +800,8 @@ const AppContent = () => {
         {view === 'recorder' && (
           <StreamingRecorder
             recordingId={activeRecordingId!}
+            currentUser={currentUser}
+            currentOrg={currentOrg}
             onComplete={(recordingId) => {
               console.log('[App] Streaming recording completed:', recordingId);
 

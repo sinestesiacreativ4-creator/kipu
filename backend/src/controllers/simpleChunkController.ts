@@ -44,23 +44,37 @@ export const SimpleChunkController = {
             console.log(`[SimpleUpload] Saved chunk ${sequence} for ${recordingId} (${req.body.length} bytes)`);
 
             // 3. Auto-create Recording if missing (Foreign Key Fix)
-            // This is crucial for the first chunk
             if (sequence === 0) {
                 const existing = await prisma.recording.findUnique({ where: { id: recordingId } });
                 if (!existing) {
-                    const defaultProfile = await prisma.profile.findFirst();
-                    const defaultOrg = await prisma.organization.findFirst();
-                    if (defaultProfile && defaultOrg) {
+                    // Get IDs from headers or fallback
+                    const userId = req.headers['x-user-id'] as string;
+                    const organizationId = req.headers['x-organization-id'] as string;
+
+                    let targetUserId = userId;
+                    let targetOrgId = organizationId;
+
+                    if (!targetUserId || !targetOrgId) {
+                        console.warn(`[SimpleUpload] Missing user/org headers for ${recordingId}. Falling back to defaults.`);
+                        const defaultProfile = await prisma.profile.findFirst();
+                        const defaultOrg = await prisma.organization.findFirst();
+                        if (defaultProfile) targetUserId = defaultProfile.id;
+                        if (defaultOrg) targetOrgId = defaultOrg.id;
+                    }
+
+                    if (targetUserId && targetOrgId) {
                         await prisma.recording.create({
                             data: {
                                 id: recordingId,
-                                userId: defaultProfile.id,
-                                organizationId: defaultOrg.id,
+                                userId: targetUserId,
+                                organizationId: targetOrgId,
                                 status: 'RECORDING',
                                 duration: 0
                             }
                         });
-                        console.log(`[SimpleUpload] Auto-created recording ${recordingId}`);
+                        console.log(`[SimpleUpload] Created recording ${recordingId} for user ${targetUserId}`);
+                    } else {
+                        console.error(`[SimpleUpload] Failed to create recording: No user/org found`);
                     }
                 }
             }

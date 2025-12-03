@@ -15,9 +15,14 @@ export const simpleRecorder = {
     chunkSequence: 0,
     stream: null as MediaStream | null,
 
-    async startRecording(onChunk: (data: Blob) => void) {
+    userId: null as string | null,
+    organizationId: null as string | null,
+
+    async startRecording(onChunk: (data: Blob) => void, userId?: string, organizationId?: string) {
         this.recordingId = uuidv4();
         this.chunkSequence = 0;
+        this.userId = userId || null;
+        this.organizationId = organizationId || null;
 
         try {
             let stream: MediaStream;
@@ -56,7 +61,7 @@ export const simpleRecorder = {
 
             // Chunk every 5 seconds
             this.mediaRecorder.start(5000);
-            console.log(`[SimpleRecorder] Started ${this.recordingId}`);
+            console.log(`[SimpleRecorder] Started ${this.recordingId} for user ${userId}`);
 
             return this.recordingId;
 
@@ -73,12 +78,17 @@ export const simpleRecorder = {
         console.log(`[SimpleRecorder] Sending chunk ${sequence} (${blob.size} bytes)`);
 
         try {
+            const headers: Record<string, string> = {
+                'Content-Type': 'video/webm',
+                'x-chunk-index': sequence.toString()
+            };
+
+            if (this.userId) headers['x-user-id'] = this.userId;
+            if (this.organizationId) headers['x-organization-id'] = this.organizationId;
+
             const response = await fetch(`${API_URL}/api/chunks/${this.recordingId}`, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'video/webm',
-                    'x-chunk-index': sequence.toString()
-                },
+                headers,
                 body: blob
             });
 

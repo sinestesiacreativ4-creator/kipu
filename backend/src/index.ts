@@ -65,7 +65,7 @@ app.use(cors({
         }
     },
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'x-request-id', 'x-chunk-index'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-request-id', 'x-chunk-index', 'x-user-id', 'x-organization-id'],
     credentials: true,
     optionsSuccessStatus: 200
 }));

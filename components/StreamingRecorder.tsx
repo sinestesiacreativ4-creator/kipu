@@ -9,12 +9,16 @@ interface StreamingRecorderProps {
     recordingId: string;
     onComplete: (recordingId: string) => void;
     onCancel: () => void;
+    currentUser?: { id: string };
+    currentOrg?: { id: string };
 }
 
 const StreamingRecorder: React.FC<StreamingRecorderProps> = ({
     recordingId,
     onComplete,
-    onCancel
+    onCancel,
+    currentUser,
+    currentOrg
 }) => {
     const [status, setStatus] = useState<RecordingStatus>(RecordingStatus.IDLE);
     const [duration, setDuration] = useState(0);
@@ -44,11 +48,12 @@ const StreamingRecorder: React.FC<StreamingRecorderProps> = ({
         try {
             await requestLock();
 
+            // Pass user and org IDs to simpleRecorder
             await simpleRecorder.startRecording((chunk: Blob) => {
                 // Track chunks
                 setUploadedChunks(prev => prev + 1);
                 setTotalSize(prev => prev + chunk.size);
-            });
+            }, currentUser?.id, currentOrg?.id);
 
             // Get the stream for waveform
             if (simpleRecorder.stream) {
