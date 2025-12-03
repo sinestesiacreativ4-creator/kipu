@@ -173,6 +173,127 @@ export const SimpleChunkController = {
             if (!validation.valid) {
                 console.warn(`[Finalize] Missing chunks for ${recordingId}:`, validation.missing);
             }
+
+            // Calculate stats
+            const totalSize = chunks.reduce((acc, c) => acc + c.size, 0);
+            const avgSize = totalSize / chunks.length;
+            console.log(`[Finalize] Assembling ${chunks.length} chunks. Total size: ${totalSize} bytes. Avg chunk size: ${Math.round(avgSize)} bytes.`);
+
+            if (avgSize < 10000) {
+                console.warn('[Finalize] Chunks are very small. Listing sizes:');
+                chunks.forEach(c => console.log(`Seq ${c.sequence}: ${c.size} bytes`));
+            }
+
+            // 3. Binary Concatenation (Robust for Stream Segments)
+            // MediaRecorder produces stream segments (fMP4 or WebM Clusters) that are designed to be binary concatenated.
+            // FFmpeg's concat demuxer often fails with these fragments if they lack headers.
+
+            const chunkBuffers: Buffer[] = [];
+            for (const chunk of chunks) {
+                if (fs.existsSync(chunk.filePath)) {
+                    chunkBuffers.push(fs.readFileSync(chunk.filePath));
+                } else {
+                    console.warn(`[Finalize] Chunk file missing: ${chunk.filePath}`);
+                }
+            }
+
+            if (chunkBuffers.length === 0) {
+                throw new Error('No chunk files found on disk');
+            }
+
+            const rawBuffer = Buffer.concat(chunkBuffers);
+            const rawExt = chunks[0].mimeType.includes('mp4') ? '.mp4' : '.webm';
+            const rawFilename = `${recordingId}_raw${rawExt}`;
+            const rawPath = path.join(TEMP_FOLDERS.merged, rawFilename);
+
+            // Ensure merged dir exists
+            if (!fs.existsSync(TEMP_FOLDERS.merged)) {
+                fs.mkdirSync(TEMP_FOLDERS.merged, { recursive: true });
+            }
+
+            fs.writeFileSync(rawPath, rawBuffer);
+            console.log(`[Finalize] Binary concatenation complete: ${rawPath} (${rawBuffer.length} bytes)`);
+
+            // 4. Transcode/Fix with FFmpeg
+            // We pass the raw concatenated file to FFmpeg. It handles the stream parsing (fixing timestamps, etc).
+            const finalFilename = `${recordingId}_final.mp4`;
+            const finalPath = path.join(TEMP_FOLDERS.merged, finalFilename);
+
+            console.log(`[Finalize] Transcoding raw file to AAC/MP4...`);
+            await new Promise<void>((resolve, reject) => {
+                ffmpeg(rawPath)
+                    .outputOptions([
+                        '-c:a', 'aac',       // Re-encode to AAC
+                        '-b:a', '128k',      // 128k bitrate
+                        '-ac', '2',          // Stereo
+                        '-movflags', '+faststart' // Optimize for streaming
+                    ])
+                    .save(finalPath)
+                    .on('end', () => resolve())
+                    .on('error', (err) => {
+                        console.error('[Finalize] FFmpeg error:', err);
+                        reject(err);
+                    });
+            });
+
+            // 5. Verify Output & Get Duration
+            const stats = fs.statSync(finalPath);
+
+            // Get actual duration using ffprobe
+            let actualDuration = 0;
+            try {
+                await new Promise<void>((resolve) => {
+                    ffmpeg.ffprobe(finalPath, (err, metadata) => {
+                        if (!err && metadata && metadata.format && metadata.format.duration) {
+                            actualDuration = metadata.format.duration;
+                        }
+                        resolve();
+                    });
+                });
+            } catch (e) {
+                console.warn('[Finalize] Failed to probe duration:', e);
+            }
+
+            console.log(`[Finalize] Assembly complete: ${finalPath}`);
+            console.log(`[Finalize] Size: ${stats.size} bytes. Duration: ${actualDuration.toFixed(2)}s`);
+
+            // 6. Update Recording Status
+            await prisma.recording.update({
+                where: { id: recordingId },
+                data: {
+                    audioKey: finalPath,
+                    status: 'PROCESSING',
+                    duration: actualDuration || (chunks.length * 5) // Fallback to estimate
+                }
+            });
+
+            // 7. Enqueue Job
+            await audioQueue.add('process-audio', {
+                recordingId,
+                filePath: finalPath,
+                mimeType: 'audio/mp4'
+            });
+
+            // 8. Cleanup
+            // Delete chunks and raw file
+            await prisma.recordingChunk.deleteMany({ where: { recordingId } });
+            if (fs.existsSync(rawPath)) {
+                try { fs.unlinkSync(rawPath); } catch { }
+            }
+            const chunkDir = path.join(TEMP_FOLDERS.chunks, recordingId);
+            if (fs.existsSync(chunkDir)) {
+                fs.rmSync(chunkDir, { recursive: true, force: true });
+            }
+
+            res.json({
+                success: true,
+                path: finalPath,
+                chunksProcessed: chunks.length,
+                duration: actualDuration
+            });
+
+        } catch (error: any) {
+            console.error('[Finalize] Error:', error);
             res.status(500).json({ error: error.message });
         }
     }
