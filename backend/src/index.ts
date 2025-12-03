@@ -122,6 +122,11 @@ app.use('/api', organizationRoutes); // Organization & Login routes
 app.use('/api', recordingRoutes); // Recording queries and management
 app.use('/api', profileRoutes); // Profile queries
 app.use('/api', statusRoutes); // Status polling for recordings
+
+// Voice API Routes
+import voiceRoutes from './controllers/voiceController';
+app.use('/api/voice', voiceRoutes);
+
 app.use('/', robustUploadRoutes); // Legacy/Robust routes
 
 // C. 404 Handler
