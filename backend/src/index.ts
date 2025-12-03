@@ -143,11 +143,23 @@ app.use((req: Request, res: Response) => {
 app.use(errorHandler);
 
 // ==========================================
-// 5. SERVER START
+// 5. SERVER START WITH WEBSOCKET SUPPORT
 // ==========================================
-app.listen(PORT, () => {
+import { createServer } from 'http';
+import { WebSocketServer } from 'ws';
+import { setupVoiceWebSocket } from './controllers/voiceController';
+
+const server = createServer(app);
+
+// Setup WebSocket for voice chat
+const wss = new WebSocketServer({ server, path: '/voice' });
+setupVoiceWebSocket(wss);
+console.log('✅ WebSocket server configured for /voice');
+
+server.listen(PORT, () => {
     console.log(`\n🚀 Server running on port ${PORT}`);
     console.log(`👉 Health check: http://localhost:${PORT}/health`);
+    console.log(`👉 WebSocket: ws://localhost:${PORT}/voice`);
     console.log(`👉 Allowed Origins: ${allowedOrigins.join(', ')}\n`);
 
     // Start audio worker for AI processing
