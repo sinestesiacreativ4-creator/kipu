@@ -58,23 +58,8 @@ app.use((req, res, next) => {
     next();
 });
 
-// A. CORS - Library Configuration (Still kept for standard handling)
-const allowedOrigins = [
-    'https://kipu-alpha.vercel.app',
-    'http://localhost:5173',
-    'http://localhost:3000'
-];
-
-app.use(cors({
-    origin: true, // Reflect request origin
-    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'x-request-id', 'x-chunk-index', 'x-user-id', 'x-organization-id'],
-    credentials: true,
-    optionsSuccessStatus: 200
-}));
-
-// Enable pre-flight requests for all routes
-app.options('*', cors());
+// A. CORS - Library Configuration (REMOVED to avoid conflicts)
+// We are relying on the manual middleware above for full control.
 
 // B. Body Parsers
 app.use(express.json({ limit: '50mb' }));
