@@ -1,5 +1,5 @@
 import axios from 'axios';
-import crypto from 'crypto';
+import * as crypto from 'crypto';
 import prisma from './prisma';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -100,7 +100,7 @@ export class PaymentService {
                     buyer: {
                         merchantBuyerId: organizationId,
                         fullName: organization.name,
-                        emailAddress: organization.billingEmail || 'noreply@kipu.com',
+                        emailAddress: (organization as any).billingEmail || 'noreply@kipu.com',
                         contactPhone: '',
                         dniNumber: ''
                     },
@@ -115,7 +115,7 @@ export class PaymentService {
                 payer: {
                     merchantPayerId: organizationId,
                     fullName: organization.name,
-                    emailAddress: organization.billingEmail || 'noreply@kipu.com',
+                    emailAddress: (organization as any).billingEmail || 'noreply@kipu.com',
                     contactPhone: '',
                     dniNumber: ''
                 },

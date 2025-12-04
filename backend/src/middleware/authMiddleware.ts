@@ -7,20 +7,20 @@ import { PaymentService } from '../services/paymentService';
  */
 declare global {
     namespace Express {
-        interface Request {
-            organization?: {
-                id: string;
-                name: string;
-                code: string;
-                plan: string;
-                status: string;
-                limits: {
-                    maxUsers: number;
-                    maxRecordings: number;
-                    maxStorageGB: number;
-                    currentStorageGB: number;
-                };
+    interface Request {
+        organization?: {
+            id: string;
+            name: string;
+            code: string | null;
+            plan: string;
+            status: string;
+            limits: {
+                maxUsers: number;
+                maxRecordings: number;
+                maxStorageGB: number;
+                currentStorageGB: number;
             };
+        };
             user?: {
                 id: string;
                 email: string;
@@ -130,7 +130,7 @@ export const authenticateUser = async (
             where: { id: userId }
         });
 
-        if (!user || user.organizationId !== req.organization.id) {
+        if (!user || !user.organizationId || user.organizationId !== req.organization.id) {
             return res.status(403).json({
                 error: 'User not found or does not belong to organization'
             });
