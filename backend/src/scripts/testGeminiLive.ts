@@ -32,7 +32,7 @@ ws.on('open', () => {
     // Send setup message
     const setupMessage = {
         setup: {
-            model: 'models/gemini-2.5-flash-live',
+            model: 'models/gemini-2.0-flash',
             generation_config: {
                 response_modalities: ['AUDIO'],
                 speech_config: {

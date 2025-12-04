@@ -84,6 +84,14 @@ const VoiceAgent: React.FC<VoiceAgentProps> = ({ recordingId }) => {
                 throw new Error('Invalid response from server');
             }
             
+            // Check if Gemini Live API is available
+            if (data.geminiAvailable === false) {
+                setStatus('Live API no disponible - Usa Chat AI');
+                console.warn('[VoiceAgent] Gemini Live API not available for this session');
+                // Don't connect to WebSocket if Gemini is not available
+                return;
+            }
+            
             sessionIdRef.current = data.sessionId;
 
             // 2. Connect WebSocket using the wsUrl from the response
@@ -119,9 +127,15 @@ const VoiceAgent: React.FC<VoiceAgentProps> = ({ recordingId }) => {
                 setStatus('Error de conexión');
             };
 
-        } catch (error) {
+        } catch (error: any) {
             console.error('[VoiceAgent] Connection failed:', error);
-            setStatus('Error al conectar');
+            
+            // Check if it's a Live API availability issue
+            if (error.message?.includes('not found') || error.message?.includes('not supported')) {
+                setStatus('Live API no disponible - Usa Chat AI');
+            } else {
+                setStatus('Error al conectar');
+            }
         }
     };
 
@@ -418,8 +432,21 @@ const VoiceAgent: React.FC<VoiceAgentProps> = ({ recordingId }) => {
                         ? isPlaying
                             ? "Gemini está hablando..."
                             : "Escuchando..."
-                        : "Presiona para conectar"}
+                        : status.includes('no disponible')
+                            ? "Live API no disponible"
+                            : "Presiona para conectar"}
                 </p>
+                
+                {status.includes('no disponible') && (
+                    <div className="mt-4 p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg max-w-md">
+                        <p className="text-xs text-amber-800 dark:text-amber-200 font-medium mb-1">
+                            ⚠️ Gemini Live API no está disponible
+                        </p>
+                        <p className="text-xs text-amber-700 dark:text-amber-300">
+                            Tu cuenta no tiene acceso a modelos Live API. Usa la pestaña <strong>"Chat AI"</strong> para hacer preguntas sobre la reunión.
+                        </p>
+                    </div>
+                )}
             </div>
 
             {/* Transcription / Chat */}

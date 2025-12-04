@@ -64,10 +64,12 @@ ${analysis.actionItems?.length > 0 ? `TAREAS:\n${analysis.actionItems.map((a: st
                     const session = new GeminiLiveSession(sessionId, context);
                     console.log(`[Voice] Creating Gemini session for ${sessionId} with recording ${recordingId}...`);
                     
+                    let geminiAvailable = false;
                     try {
                         await session.connect();
                         console.log(`[Voice] ✅ Gemini session created for ${sessionId}`);
                         activeSessions.set(sessionId, session);
+                        geminiAvailable = true;
                         
                         // Auto-cleanup after 30 minutes
                         setTimeout(() => {
@@ -79,8 +81,22 @@ ${analysis.actionItems?.length > 0 ? `TAREAS:\n${analysis.actionItems.map((a: st
                         }, 30 * 60 * 1000);
                     } catch (geminiError: any) {
                         console.error(`[Voice] Failed to create Gemini session:`, geminiError);
+                        geminiAvailable = false;
                         // Continue anyway - frontend can still connect, but Gemini won't respond
                     }
+                    
+                    // Include Gemini availability in response
+                    const response = {
+                        success: true,
+                        sessionId: sessionId,
+                        wsUrl: finalWsUrl,
+                        createdAt: new Date().toISOString(),
+                        geminiAvailable: geminiAvailable
+                    };
+
+                    console.log(`[Voice] Session init requested for ${sessionId}, wsUrl: ${finalWsUrl}, Gemini: ${geminiAvailable ? 'available' : 'not available'}`);
+                    
+                    return res.json(response);
                 }
             } catch (dbError: any) {
                 console.error(`[Voice] Error fetching recording:`, dbError);
@@ -88,11 +104,13 @@ ${analysis.actionItems?.length > 0 ? `TAREAS:\n${analysis.actionItems.map((a: st
             }
         }
 
+        // If no recordingId, return simple response without Gemini session
         const response = {
             success: true,
             sessionId: sessionId,
             wsUrl: finalWsUrl,
-            createdAt: new Date().toISOString()
+            createdAt: new Date().toISOString(),
+            geminiAvailable: false // No recordingId means no Gemini session
         };
 
         console.log(`[Voice] Session init requested for ${sessionId}, wsUrl: ${finalWsUrl}`);
