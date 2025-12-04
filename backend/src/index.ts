@@ -151,7 +151,7 @@ server.listen(PORT, () => {
     console.log(`\n🚀 Server running on port ${PORT}`);
     console.log(`👉 Health check: http://localhost:${PORT}/health`);
     console.log(`👉 WebSocket: ws://localhost:${PORT}/voice`);
-    console.log(`👉 Allowed Origins: ${allowedOrigins.join(', ')}\n`);
+    console.log(`👉 CORS: Permissive (All origins allowed)\n`);
 
     // Start audio worker for AI processing
     import('./workers/audioWorker').then(() => {
