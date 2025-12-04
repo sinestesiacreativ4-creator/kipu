@@ -72,7 +72,18 @@ ${analysis.actionItems?.length > 0 ? `TAREAS:\n${analysis.actionItems.map((a: st
 
     } catch (error: any) {
         console.error('[Voice] Init error:', error);
-        res.status(500).json({ error: error.message });
+        
+        // Provide more helpful error messages
+        let errorMessage = error.message || 'Failed to initialize voice session';
+        if (error.message?.includes('GEMINI_API_KEY')) {
+            errorMessage = 'GEMINI_API_KEY is not configured. Please set it in your .env file.';
+        } else if (error.message?.includes('404') || error.message?.includes('not found')) {
+            errorMessage = 'Recording not found or not analyzed yet.';
+        } else if (error.message?.includes('model') || error.message?.includes('unavailable')) {
+            errorMessage = 'Gemini Live API model is not available. The model gemini-2.0-flash-exp may not be accessible for your API key.';
+        }
+        
+        res.status(500).json({ error: errorMessage });
     }
 });
 

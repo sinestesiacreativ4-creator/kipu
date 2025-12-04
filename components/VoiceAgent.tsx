@@ -242,15 +242,11 @@ const VoiceAgent: React.FC<VoiceAgentProps> = ({ recordingId }) => {
                 // Convert to Base64
                 const base64 = btoa(String.fromCharCode(...new Uint8Array(pcmData.buffer)));
 
-                // Send to WebSocket
+                // Send to WebSocket (backend expects type: 'audio' format)
                 if (wsRef.current?.readyState === WebSocket.OPEN) {
                     wsRef.current.send(JSON.stringify({
-                        realtime_input: {
-                            media_chunks: [{
-                                mime_type: 'audio/pcm',
-                                data: base64
-                            }]
-                        }
+                        type: 'audio',
+                        data: base64
                     }));
                 }
             };

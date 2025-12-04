@@ -1,12 +1,12 @@
 services:
-  # 1. Backend API Service
+  # 1. Backend API Service (con soporte WebSocket para Agente de Voz)
   - type: web
     name: kipu-backend
     env: node
     plan: free
     rootDir: backend
-    buildCommand: npm install && npx prisma generate && npm run build
-    startCommand: npx prisma generate && npx prisma db push && node dist/index.js
+    buildCommand: npm run build
+    startCommand: npx prisma generate && npx prisma db push --accept-data-loss && node dist/index.js
     envVars:
       - key: NODE_ENV
         value: production
@@ -24,6 +24,7 @@ services:
         sync: false
       - key: FRONTEND_URL
         sync: false
+    # Render soporta WebSockets automáticamente en servicios web
 
   # 3. Frontend Static Site
   - type: web

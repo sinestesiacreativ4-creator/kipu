@@ -10,6 +10,7 @@ export class GeminiLiveSession {
     private ws: WebSocket | null = null;
     private sessionId: string;
     private analysisContext: string;
+    private messageCallback: ((data: any) => void) | null = null;
 
     constructor(sessionId: string, analysisContext: string) {
         this.sessionId = sessionId;
@@ -18,7 +19,12 @@ export class GeminiLiveSession {
 
     async connect(): Promise<void> {
         const apiKey = process.env.GEMINI_API_KEY;
-        const model = 'gemini-2.5-flash-live';
+        if (!apiKey) {
+            throw new Error('GEMINI_API_KEY is not configured');
+        }
+        
+        // Try gemini-2.0-flash-exp first (most common), fallback to gemini-2.5-flash-live
+        const model = 'gemini-2.0-flash-exp';
 
         // Gemini Live API WebSocket URL
         const wsUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${apiKey}`;
@@ -39,8 +45,20 @@ export class GeminiLiveSession {
                 reject(error);
             });
 
-            this.ws.on('close', () => {
-                console.log(`[GeminiLive] Session ${this.sessionId} closed`);
+            this.ws.on('close', (code, reason) => {
+                console.log(`[GeminiLive] Session ${this.sessionId} closed (code: ${code}, reason: ${reason})`);
+            });
+
+            // Set up message handler
+            this.ws.on('message', (data) => {
+                try {
+                    const message = JSON.parse(data.toString());
+                    if (this.messageCallback) {
+                        this.messageCallback(message);
+                    }
+                } catch (error) {
+                    console.error(`[GeminiLive] Error parsing message:`, error);
+                }
             });
         });
     }
@@ -50,7 +68,7 @@ export class GeminiLiveSession {
 
         const setupMessage = {
             setup: {
-                model: 'models/gemini-2.5-flash-live',
+                model: 'models/gemini-2.0-flash-exp',
                 generation_config: {
                     response_modalities: ['AUDIO'],
                     speech_config: {
@@ -121,16 +139,7 @@ INSTRUCCIONES:
     }
 
     onMessage(callback: (data: any) => void): void {
-        if (!this.ws) return;
-
-        this.ws.on('message', (data) => {
-            try {
-                const message = JSON.parse(data.toString());
-                callback(message);
-            } catch (error) {
-                console.error(`[GeminiLive] Error parsing message:`, error);
-            }
-        });
+        this.messageCallback = callback;
     }
 
     close(): void {
