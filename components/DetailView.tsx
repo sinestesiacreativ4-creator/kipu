@@ -238,40 +238,55 @@ const DetailView: React.FC<DetailViewProps> = ({ recording, onBack, onReanalyze 
   return (
     <div className="max-w-5xl mx-auto p-4 md:p-8 print:p-0 print:max-w-none">
       {/* Header */}
-      <header className="mb-8 no-print">
+      <header className="mb-6 md:mb-8 no-print" role="banner">
         <button
           onClick={onBack}
-          className="flex items-center text-stone-500 hover:text-primary dark:text-stone-400 dark:hover:text-white mb-6 transition-colors font-medium"
+          className="flex items-center text-stone-600 hover:text-primary dark:text-stone-400 dark:hover:text-white mb-4 md:mb-6 transition-colors font-medium focus:outline-none focus:ring-2 focus:ring-primary/50 rounded-lg px-2 py-1 -ml-2"
+          aria-label="Volver al inicio"
         >
-          <ArrowLeft size={20} className="mr-2" /> Volver al Inicio
+          <ArrowLeft size={20} className="mr-2" aria-hidden="true" /> Volver al Inicio
         </button>
-        <div className="flex flex-col md:flex-row md:items-start justify-between gap-6">
-          <div>
-            <h1 className="text-4xl font-display font-bold text-stone-900 dark:text-white mb-3 leading-tight">{analysis.title}</h1>
-            <div className="flex flex-wrap items-center gap-3 text-sm text-stone-500 dark:text-stone-400">
-              <span className="flex items-center gap-1.5 px-2.5 py-1 bg-stone-100 dark:bg-stone-800 rounded-full font-medium"><Folder size={14} /> {analysis.category}</span>
-              <span className="hidden md:inline text-stone-300">•</span>
-              <span className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 bg-stone-400 rounded-full"></span> {new Date(createdAt).toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</span>
-              <span className="hidden md:inline text-stone-300">•</span>
-              <span className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 bg-stone-400 rounded-full"></span> {formatTime(duration)}</span>
+        <div className="flex flex-col md:flex-row md:items-start justify-between gap-4 md:gap-6">
+          <div className="flex-1 min-w-0">
+            <h1 className="text-2xl sm:text-3xl md:text-4xl font-display font-bold text-stone-900 dark:text-white mb-3 leading-tight">{analysis.title}</h1>
+            <div className="flex flex-wrap items-center gap-2 md:gap-3 text-xs sm:text-sm text-stone-600 dark:text-stone-400">
+              <span className="flex items-center gap-1.5 px-2.5 py-1 bg-stone-100 dark:bg-stone-800 rounded-full font-medium">
+                <Folder size={14} aria-hidden="true" /> {analysis.category}
+              </span>
+              <span className="hidden md:inline text-stone-300 dark:text-stone-600" aria-hidden="true">•</span>
+              <time 
+                className="flex items-center gap-1.5"
+                dateTime={new Date(createdAt).toISOString()}
+              >
+                <span className="w-1.5 h-1.5 bg-stone-400 rounded-full" aria-hidden="true"></span> 
+                {new Date(createdAt).toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+              </time>
+              <span className="hidden md:inline text-stone-300 dark:text-stone-600" aria-hidden="true">•</span>
+              <span className="flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 bg-stone-400 rounded-full" aria-hidden="true"></span> 
+                {formatTime(duration)}
+              </span>
             </div>
           </div>
-          <div className="flex gap-3">
+          <div className="flex flex-wrap gap-2 md:gap-3">
             {(recording.status === RecordingStatus.OFFLINE || analysis?.title?.includes('Modo Offline')) && onReanalyze && (
               <button
                 onClick={handleReanalyze}
                 disabled={isReanalyzing}
-                className="flex items-center gap-2 px-5 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl shadow-lg shadow-amber-500/20 transition-all hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+                className="flex items-center gap-2 px-4 md:px-5 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl shadow-lg shadow-amber-500/20 transition-all hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed font-medium focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+                aria-label={isReanalyzing ? 'Analizando grabación' : 'Re-analizar grabación'}
               >
-                <RefreshCw size={18} className={isReanalyzing ? 'animate-spin' : ''} />
-                {isReanalyzing ? 'Analizando...' : 'Re-analizar'}
+                <RefreshCw size={18} className={isReanalyzing ? 'animate-spin' : ''} aria-hidden="true" />
+                <span className="text-sm md:text-base">{isReanalyzing ? 'Analizando...' : 'Re-analizar'}</span>
               </button>
             )}
             <button
               onClick={() => setShowExportModal(true)}
-              className="flex items-center gap-2 px-5 py-2.5 bg-secondary hover:bg-green-800 text-white rounded-xl shadow-lg shadow-secondary/20 transition-all hover:-translate-y-0.5 font-medium"
+              className="flex items-center gap-2 px-4 md:px-5 py-2.5 bg-secondary hover:bg-green-800 text-white rounded-xl shadow-lg shadow-secondary/20 transition-all hover:-translate-y-0.5 font-medium focus:outline-none focus:ring-2 focus:ring-green-600/50"
+              aria-label="Exportar grabación"
             >
-              <Download size={18} /> Exportar
+              <Download size={18} aria-hidden="true" /> 
+              <span className="text-sm md:text-base">Exportar</span>
             </button>
           </div>
         </div>
@@ -289,53 +304,78 @@ const DetailView: React.FC<DetailViewProps> = ({ recording, onBack, onReanalyze 
         <div className="lg:col-span-2 space-y-6">
 
           {/* Tabs (No Print) */}
-          <div className="flex p-1.5 bg-stone-100 dark:bg-stone-800/50 rounded-2xl no-print mb-8 border border-stone-200 dark:border-stone-700">
+          <nav 
+            className="flex p-1.5 bg-stone-100 dark:bg-stone-800/50 rounded-2xl no-print mb-6 md:mb-8 border border-stone-200 dark:border-stone-700"
+            role="tablist"
+            aria-label="Secciones de la grabación"
+          >
             <button
               onClick={() => setActiveTab('summary')}
-              className={`flex-1 px-6 py-3 text-sm font-bold rounded-xl transition-all duration-300 ${activeTab === 'summary'
+              role="tab"
+              aria-selected={activeTab === 'summary'}
+              aria-controls="summary-panel"
+              id="summary-tab"
+              className={`flex-1 px-4 md:px-6 py-2.5 md:py-3 text-xs sm:text-sm font-bold rounded-xl transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-primary/50 ${activeTab === 'summary'
                 ? 'bg-white dark:bg-stone-700 text-primary shadow-md transform scale-[1.02]'
-                : 'text-stone-500 hover:text-stone-700 dark:text-stone-400 dark:hover:text-stone-200 hover:bg-stone-200/50 dark:hover:bg-stone-700/30'
+                : 'text-stone-600 hover:text-stone-800 dark:text-stone-400 dark:hover:text-stone-200 hover:bg-stone-200/50 dark:hover:bg-stone-700/30'
                 }`}
             >
               Resumen Inteligente
             </button>
             <button
               onClick={() => setActiveTab('transcript')}
-              className={`flex-1 px-6 py-3 text-sm font-bold rounded-xl transition-all duration-300 ${activeTab === 'transcript'
+              role="tab"
+              aria-selected={activeTab === 'transcript'}
+              aria-controls="transcript-panel"
+              id="transcript-tab"
+              className={`flex-1 px-4 md:px-6 py-2.5 md:py-3 text-xs sm:text-sm font-bold rounded-xl transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-primary/50 ${activeTab === 'transcript'
                 ? 'bg-white dark:bg-stone-700 text-primary shadow-md transform scale-[1.02]'
-                : 'text-stone-500 hover:text-stone-700 dark:text-stone-400 dark:hover:text-stone-200 hover:bg-stone-200/50 dark:hover:bg-stone-700/30'
+                : 'text-stone-600 hover:text-stone-800 dark:text-stone-400 dark:hover:text-stone-200 hover:bg-stone-200/50 dark:hover:bg-stone-700/30'
                 }`}
             >
               Transcripción Completa
             </button>
             <button
               onClick={() => setActiveTab('chat')}
-              className={`flex-1 px-6 py-3 text-sm font-bold rounded-xl transition-all duration-300 ${activeTab === 'chat'
+              role="tab"
+              aria-selected={activeTab === 'chat'}
+              aria-controls="chat-panel"
+              id="chat-tab"
+              className={`flex-1 px-4 md:px-6 py-2.5 md:py-3 text-xs sm:text-sm font-bold rounded-xl transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-primary/50 ${activeTab === 'chat'
                 ? 'bg-white dark:bg-stone-700 text-primary shadow-md transform scale-[1.02]'
-                : 'text-stone-500 hover:text-stone-700 dark:text-stone-400 dark:hover:text-stone-200 hover:bg-stone-200/50 dark:hover:bg-stone-700/30'
+                : 'text-stone-600 hover:text-stone-800 dark:text-stone-400 dark:hover:text-stone-200 hover:bg-stone-200/50 dark:hover:bg-stone-700/30'
                 }`}
             >
               <div className="flex items-center justify-center gap-2">
-                <MessageSquare size={16} />
-                Chat AI
+                <MessageSquare size={16} aria-hidden="true" />
+                <span>Chat AI</span>
               </div>
             </button>
             <button
               onClick={() => setActiveTab('voice')}
-              className={`flex-1 px-6 py-3 text-sm font-bold rounded-xl transition-all duration-300 ${activeTab === 'voice'
+              role="tab"
+              aria-selected={activeTab === 'voice'}
+              aria-controls="voice-panel"
+              id="voice-tab"
+              className={`flex-1 px-4 md:px-6 py-2.5 md:py-3 text-xs sm:text-sm font-bold rounded-xl transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-primary/50 ${activeTab === 'voice'
                 ? 'bg-white dark:bg-stone-700 text-primary shadow-md transform scale-[1.02]'
-                : 'text-stone-500 hover:text-stone-700 dark:text-stone-400 dark:hover:text-stone-200 hover:bg-stone-200/50 dark:hover:bg-stone-700/30'
+                : 'text-stone-600 hover:text-stone-800 dark:text-stone-400 dark:hover:text-stone-200 hover:bg-stone-200/50 dark:hover:bg-stone-700/30'
                 }`}
             >
               <div className="flex items-center justify-center gap-2">
-                <Mic size={16} />
-                Voz
+                <Mic size={16} aria-hidden="true" />
+                <span>Voz</span>
               </div>
             </button>
-          </div>
+          </nav>
 
           {/* Summary Tab Content */}
-          <div className={`${activeTab === 'summary' ? 'block' : 'hidden'} print:block space-y-8 animate-fade-in`}>
+          <div 
+            id="summary-panel"
+            role="tabpanel"
+            aria-labelledby="summary-tab"
+            className={`${activeTab === 'summary' ? 'block' : 'hidden'} print:block space-y-6 md:space-y-8 animate-fade-in`}
+          >
 
             <section className="glass-card p-8 rounded-2xl">
               <h3 className="flex items-center gap-2 text-lg font-semibold text-stone-900 dark:text-white mb-4">
@@ -378,7 +418,12 @@ const DetailView: React.FC<DetailViewProps> = ({ recording, onBack, onReanalyze 
           </div>
 
           {/* Transcript Tab Content */}
-          <div className={`${activeTab === 'transcript' ? 'block' : 'hidden'} print:block animate-fade-in`}>
+          <div 
+            id="transcript-panel"
+            role="tabpanel"
+            aria-labelledby="transcript-tab"
+            className={`${activeTab === 'transcript' ? 'block' : 'hidden'} print:block animate-fade-in`}
+          >
             <div className="bg-white dark:bg-stone-800 rounded-2xl shadow-sm border border-stone-100 dark:border-stone-700 divide-y divide-stone-100 dark:divide-stone-700 overflow-hidden">
               {analysis.transcript.length > 0 ? (
                 analysis.transcript.map((segment, idx) => (
@@ -409,12 +454,22 @@ const DetailView: React.FC<DetailViewProps> = ({ recording, onBack, onReanalyze 
           </div>
 
           {/* Chat Tab Content */}
-          <div className={`${activeTab === 'chat' ? 'block' : 'hidden'} print:hidden animate-fade-in`}>
+          <div 
+            id="chat-panel"
+            role="tabpanel"
+            aria-labelledby="chat-tab"
+            className={`${activeTab === 'chat' ? 'block' : 'hidden'} print:hidden animate-fade-in`}
+          >
             <MeetingChat analysis={analysis} />
           </div>
 
           {/* Voice Tab Content */}
-          <div className={`${activeTab === 'voice' ? 'block' : 'hidden'} print:hidden animate-fade-in`}>
+          <div 
+            id="voice-panel"
+            role="tabpanel"
+            aria-labelledby="voice-tab"
+            className={`${activeTab === 'voice' ? 'block' : 'hidden'} print:hidden animate-fade-in`}
+          >
             <VoiceAgent recordingId={recording.id} />
           </div>
 
@@ -423,15 +478,18 @@ const DetailView: React.FC<DetailViewProps> = ({ recording, onBack, onReanalyze 
         {/* Sidebar / Sticky Player */}
         <div className="lg:col-span-1 space-y-6">
           {/* Audio Player */}
-          <div className="sticky top-6 bg-white dark:bg-stone-800 p-6 rounded-xl shadow-lg border border-stone-100 dark:border-stone-700 no-print">
-            <h3 className="text-sm font-semibold text-stone-500 dark:text-stone-400 uppercase tracking-wider mb-4">Grabación</h3>
+          <aside className="sticky top-6 bg-white dark:bg-stone-800 p-4 md:p-6 rounded-xl shadow-lg border border-stone-100 dark:border-stone-700 no-print">
+            <h3 className="text-sm font-semibold text-stone-600 dark:text-stone-400 uppercase tracking-wider mb-4">Grabación</h3>
             {audioBase64 && (
               <audio
                 ref={audioRef}
                 controls
                 className="w-full mb-4 accent-primary"
                 src={`data:audio/webm;base64,${audioBase64}`}
-              />
+                aria-label="Reproductor de audio de la grabación"
+              >
+                Tu navegador no soporta el elemento de audio.
+              </audio>
             )}
 
             <div className="mt-6">
@@ -462,9 +520,17 @@ const DetailView: React.FC<DetailViewProps> = ({ recording, onBack, onReanalyze 
 
       {/* Export Modal */}
       {showExportModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 dark:bg-black/70 backdrop-blur-sm p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="export-modal-title"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setShowExportModal(false);
+          }}
+        >
           <div className="bg-white dark:bg-stone-900 rounded-2xl shadow-2xl max-w-md w-full p-6 animate-in fade-in zoom-in-95 duration-200">
-            <h3 className="text-xl font-bold text-stone-900 dark:text-white mb-4">Opciones de Exportación</h3>
+            <h3 id="export-modal-title" className="text-xl font-bold text-stone-900 dark:text-white mb-4">Opciones de Exportación</h3>
             <p className="text-stone-500 dark:text-stone-400 text-sm mb-6">Selecciona qué deseas incluir en tu documento.</p>
 
             <div className="space-y-3 mb-8">
@@ -497,23 +563,26 @@ const DetailView: React.FC<DetailViewProps> = ({ recording, onBack, onReanalyze 
               </label>
             </div>
 
-            <div className="flex gap-3">
+            <div className="flex flex-wrap gap-3">
               <button
                 onClick={() => setShowExportModal(false)}
-                className="flex-1 px-4 py-2 text-stone-600 hover:bg-stone-100 dark:text-stone-300 dark:hover:bg-stone-800 rounded-lg transition-colors"
+                className="flex-1 min-w-[100px] px-4 py-2 text-stone-700 hover:bg-stone-100 dark:text-stone-300 dark:hover:bg-stone-800 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-stone-500/50 font-medium"
+                aria-label="Cancelar exportación"
               >
                 Cancelar
               </button>
               <button
                 onClick={handleExportWord}
-                className="flex items-center justify-center gap-2 flex-1 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium shadow-lg shadow-green-600/20 transition-all"
+                className="flex items-center justify-center gap-2 flex-1 min-w-[100px] px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium shadow-lg shadow-green-600/20 transition-all focus:outline-none focus:ring-2 focus:ring-green-500/50"
+                aria-label="Exportar como documento Word"
               >
-                <FileText size={18} />
+                <FileText size={18} aria-hidden="true" />
                 Word
               </button>
               <button
                 onClick={handleExportPDF}
-                className="flex-1 px-4 py-2 bg-primary hover:bg-primary-hover text-white rounded-lg font-medium shadow-lg shadow-primary/20 transition-all"
+                className="flex-1 min-w-[100px] px-4 py-2 bg-primary hover:bg-primary-hover text-white rounded-lg font-medium shadow-lg shadow-primary/20 transition-all focus:outline-none focus:ring-2 focus:ring-primary/50"
+                aria-label="Exportar como PDF"
               >
                 PDF
               </button>

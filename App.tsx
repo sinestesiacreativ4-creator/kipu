@@ -54,106 +54,167 @@ const Dashboard = ({
   });
 
   return (
-    <div className="max-w-6xl mx-auto p-6 md:p-10 animate-fade-in">
+    <div className="max-w-6xl mx-auto p-4 sm:p-6 md:p-10 animate-fade-in">
       {/* Header */}
-      {/* Header */}
-      <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-12 sticky top-0 z-30 py-6 -mx-6 px-6 md:-mx-10 md:px-10 glass rounded-b-3xl transition-all duration-300">
-        <div>
-          <h1 className="text-3xl md:text-4xl font-display font-bold text-stone-900 dark:text-white tracking-tight">
+      <header 
+        className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 md:gap-6 mb-8 md:mb-12 sticky top-0 z-30 py-4 md:py-6 -mx-4 sm:-mx-6 px-4 sm:px-6 md:-mx-10 md:px-10 glass rounded-b-2xl md:rounded-b-3xl transition-all duration-300"
+        role="banner"
+      >
+        <div className="flex-1 min-w-0">
+          <h1 className="text-2xl sm:text-3xl md:text-4xl font-display font-bold text-stone-900 dark:text-white tracking-tight">
             Hola, <span className="text-gradient-gold">{user.name.split(' ')[0]}</span>
           </h1>
-          <p className="text-stone-500 dark:text-stone-400 mt-1 font-light text-base md:text-lg">
+          <p className="text-stone-600 dark:text-stone-400 mt-1.5 font-light text-sm sm:text-base md:text-lg">
             {recordings.length === 0
               ? 'Tu archivo está listo para comenzar.'
-              : `${recordings.length} grabaciones guardadas.`}
+              : `${recordings.length} ${recordings.length === 1 ? 'grabación guardada' : 'grabaciones guardadas'}.`}
           </p>
         </div>
-        <div className="relative w-full md:w-auto group">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-stone-400 group-focus-within:text-primary transition-colors" size={18} />
+        <div className="relative w-full md:w-auto group flex-shrink-0">
+          <label htmlFor="search-input" className="sr-only">Buscar grabaciones</label>
+          <Search 
+            className="absolute left-4 top-1/2 -translate-y-1/2 text-stone-400 dark:text-stone-500 group-focus-within:text-primary transition-colors pointer-events-none" 
+            size={18} 
+            aria-hidden="true"
+          />
           <input
-            type="text"
-            placeholder="Buscar..."
+            id="search-input"
+            type="search"
+            placeholder="Buscar grabaciones..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full md:w-80 pl-11 pr-5 py-2.5 bg-stone-100/50 dark:bg-stone-800/50 backdrop-blur-sm border border-stone-200 dark:border-stone-700 rounded-full focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary text-sm transition-all"
+            className="w-full md:w-80 pl-11 pr-5 py-2.5 bg-stone-100/80 dark:bg-stone-800/80 backdrop-blur-sm border border-stone-200 dark:border-stone-700 rounded-full focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary text-sm transition-all placeholder:text-stone-400 dark:placeholder:text-stone-500"
+            aria-label="Buscar grabaciones"
           />
         </div>
       </header>
 
       {/* Loading Overlay */}
       {isLoading && (
-        <div className="fixed inset-0 bg-black/20 backdrop-blur-sm z-40 flex items-center justify-center">
-          <div className="bg-white dark:bg-stone-900 rounded-2xl p-8 shadow-2xl flex flex-col items-center gap-4">
-            <Loader2 size={48} className="animate-spin text-primary" />
-            <p className="text-stone-600 dark:text-stone-400 font-medium">Cargando grabaciones...</p>
+        <div 
+          className="fixed inset-0 bg-black/30 dark:bg-black/50 backdrop-blur-sm z-40 flex items-center justify-center"
+          role="status"
+          aria-live="polite"
+          aria-label="Cargando grabaciones"
+        >
+          <div className="bg-white dark:bg-stone-900 rounded-2xl p-6 md:p-8 shadow-2xl flex flex-col items-center gap-4 max-w-sm mx-4">
+            <Loader2 size={48} className="animate-spin text-primary" aria-hidden="true" />
+            <p className="text-stone-700 dark:text-stone-300 font-medium text-center">Cargando grabaciones...</p>
           </div>
         </div>
       )}
 
       {/* Recent Section */}
-      <section>
-        <h2 className="text-lg font-semibold text-stone-800 dark:text-stone-200 mb-4">Grabaciones Recientes</h2>
+      <section aria-labelledby="recent-recordings-heading">
+        <h2 id="recent-recordings-heading" className="text-lg md:text-xl font-semibold text-stone-900 dark:text-stone-100 mb-4 md:mb-6">
+          Grabaciones Recientes
+        </h2>
 
         {filteredRecordings.length === 0 ? (
-          <div className="text-center py-20 bg-white dark:bg-stone-900 rounded-2xl border-2 border-dashed border-stone-200 dark:border-stone-800">
-            <div className="w-16 h-16 bg-stone-50 dark:bg-stone-800 rounded-full flex items-center justify-center mx-auto mb-4">
+          <div 
+            className="text-center py-16 md:py-20 bg-white dark:bg-stone-900 rounded-2xl border-2 border-dashed border-stone-200 dark:border-stone-800"
+            role="status"
+            aria-live="polite"
+          >
+            <div className="w-16 h-16 bg-stone-50 dark:bg-stone-800 rounded-full flex items-center justify-center mx-auto mb-4" aria-hidden="true">
               <FileAudio className="text-stone-300 dark:text-stone-600" size={32} />
             </div>
-            <p className="text-stone-500 dark:text-stone-400">Tu archivo está vacío. Comienza a documentar una sesión.</p>
+            <p className="text-stone-600 dark:text-stone-400 px-4">
+              {searchTerm 
+                ? `No se encontraron grabaciones que coincidan con "${searchTerm}"`
+                : 'Tu archivo está vacío. Comienza a documentar una sesión.'}
+            </p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div 
+            className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6"
+            role="list"
+            aria-label="Lista de grabaciones"
+          >
             {filteredRecordings.map(rec => (
-              <div
+              <article
                 key={rec.id}
-                className="group glass-card p-5 rounded-2xl hover:-translate-y-1 relative overflow-hidden cursor-pointer"
+                className="group glass-card p-5 rounded-2xl hover:-translate-y-1 hover:shadow-xl relative overflow-hidden cursor-pointer transition-all duration-200 focus-within:ring-2 focus-within:ring-primary/50 focus-within:outline-none"
                 onClick={() => onSelectRecording(rec)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    onSelectRecording(rec);
+                  }
+                }}
+                tabIndex={0}
+                role="listitem"
+                aria-label={`Grabación: ${rec.analysis?.title || 'Procesando'}`}
               >
                 <div className="flex justify-between items-start mb-4">
-                  <div className={`p-2.5 rounded-xl ${rec.status === RecordingStatus.PROCESSING ? 'bg-amber-100 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400' : 'bg-stone-100 text-stone-600 dark:bg-stone-800 dark:text-stone-300'}`}>
-                    {rec.status === RecordingStatus.PROCESSING ? <Clock size={20} className="animate-spin-slow" /> : <FileAudio size={20} />}
+                  <div 
+                    className={`p-2.5 rounded-xl ${rec.status === RecordingStatus.PROCESSING ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' : 'bg-stone-100 text-stone-700 dark:bg-stone-800 dark:text-stone-300'}`}
+                    aria-hidden="true"
+                  >
+                    {rec.status === RecordingStatus.PROCESSING ? (
+                      <Clock size={20} className="animate-spin-slow" aria-label="Procesando" />
+                    ) : (
+                      <FileAudio size={20} aria-label="Grabación completada" />
+                    )}
                   </div>
-                  <span className="text-xs font-medium text-stone-400 font-mono bg-stone-50 dark:bg-stone-800/50 px-2 py-1 rounded-md border border-stone-100 dark:border-stone-800">
+                  <time 
+                    className="text-xs font-medium text-stone-500 dark:text-stone-400 font-mono bg-stone-50 dark:bg-stone-800/50 px-2.5 py-1 rounded-md border border-stone-100 dark:border-stone-800"
+                    dateTime={new Date(rec.createdAt).toISOString()}
+                  >
                     {formatTime(rec.duration)}
-                  </span>
+                  </time>
                 </div>
 
-                <h3 className="font-display font-bold text-lg text-stone-900 dark:text-stone-100 mb-1.5 line-clamp-1 group-hover:text-primary transition-colors">
+                <h3 className="font-display font-bold text-lg text-stone-900 dark:text-stone-100 mb-2 line-clamp-2 group-hover:text-primary transition-colors min-h-[3.5rem]">
                   {rec.analysis?.title || "Procesando..."}
                 </h3>
-                <p className="text-sm text-stone-500 dark:text-stone-400 mb-4 line-clamp-2 h-10 leading-relaxed">
+                <p className="text-sm text-stone-600 dark:text-stone-400 mb-4 line-clamp-2 min-h-[2.5rem] leading-relaxed">
                   {rec.analysis?.summary?.[0] || "Esperando resumen de IA..."}
                 </p>
 
-                <div className="flex items-center gap-2 mt-auto pt-3 border-t border-stone-100 dark:border-stone-800">
-                  <span className="px-2 py-0.5 bg-stone-100 dark:bg-stone-800 text-[10px] uppercase tracking-wider font-bold text-stone-500 dark:text-stone-400 rounded-full">
+                <div className="flex items-center gap-2 mt-auto pt-4 border-t border-stone-100 dark:border-stone-800">
+                  <span className="px-2.5 py-1 bg-stone-100 dark:bg-stone-800 text-[10px] uppercase tracking-wider font-semibold text-stone-600 dark:text-stone-400 rounded-full">
                     {rec.analysis?.category || "General"}
                   </span>
-                  <span className="text-[10px] text-stone-400 ml-auto">
+                  <time 
+                    className="text-[10px] text-stone-500 dark:text-stone-500 ml-auto"
+                    dateTime={new Date(rec.createdAt).toISOString()}
+                  >
                     {new Date(rec.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
-                  </span>
+                  </time>
                 </div>
 
                 {/* Delete Button */}
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
-                    if (confirm('¿Estás seguro de que deseas eliminar esta grabación?')) {
+                    e.preventDefault();
+                    if (window.confirm('¿Estás seguro de que deseas eliminar esta grabación?')) {
                       onDeleteRecording(rec.id);
                     }
                   }}
-                  className="absolute top-3 right-3 p-2 text-stone-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-full opacity-0 group-hover:opacity-100 transition-all"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.stopPropagation();
+                    }
+                  }}
+                  className="absolute top-3 right-3 p-2 text-stone-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-full opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus:opacity-100 transition-all focus:outline-none focus:ring-2 focus:ring-red-500/50"
+                  aria-label={`Eliminar grabación: ${rec.analysis?.title || 'sin título'}`}
+                  title="Eliminar grabación"
                 >
-                  <Trash2 size={16} />
+                  <Trash2 size={16} aria-hidden="true" />
                 </button>
-              </div>
+              </article>
             ))}
           </div>
         )}
       </section>
 
       {/* Mobile-Optimized Action Buttons */}
-      <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-30 flex flex-col sm:flex-row items-center gap-3">
+      <nav 
+        className="fixed bottom-4 sm:bottom-6 left-1/2 -translate-x-1/2 z-30 flex flex-col sm:flex-row items-center gap-3 max-w-full px-4"
+        aria-label="Acciones principales"
+      >
         {/* Hidden file input */}
         <input
           type="file"
@@ -161,29 +222,33 @@ const Dashboard = ({
           onChange={handleFileChange}
           accept="audio/*,video/*,.mp3,.wav,.m4a,.webm,.ogg"
           className="hidden"
+          aria-label="Subir archivo de audio"
         />
 
         {/* Upload Button */}
         <button
           onClick={() => fileInputRef.current?.click()}
-          className="bg-stone-800 hover:bg-stone-700 dark:bg-stone-700 dark:hover:bg-stone-600 text-white px-5 py-3 sm:px-6 sm:py-4 rounded-full shadow-xl transition-all hover:scale-105 active:scale-95 flex items-center gap-2 min-w-[160px] justify-center"
+          className="bg-stone-800 hover:bg-stone-700 dark:bg-stone-700 dark:hover:bg-stone-600 text-white px-5 py-3 sm:px-6 sm:py-4 rounded-full shadow-xl transition-all hover:scale-105 active:scale-95 flex items-center gap-2 min-w-[140px] sm:min-w-[160px] justify-center focus:outline-none focus:ring-2 focus:ring-stone-500/50"
+          aria-label="Subir archivo de audio"
           title="Subir archivo de audio"
         >
-          <Upload size={20} className="sm:hidden" />
-          <Upload size={24} className="hidden sm:block" />
+          <Upload size={20} className="sm:hidden" aria-hidden="true" />
+          <Upload size={24} className="hidden sm:block" aria-hidden="true" />
           <span className="font-semibold text-sm sm:text-base">Subir Audio</span>
         </button>
 
         {/* Record Button */}
         <button
           onClick={onStartRecord}
-          className="bg-primary hover:bg-primary-hover text-white px-5 py-3 sm:px-6 sm:py-4 rounded-full shadow-2xl shadow-primary/40 transition-all hover:scale-105 active:scale-95 flex items-center gap-2 min-w-[160px] justify-center"
+          className="bg-primary hover:bg-primary-hover text-white px-5 py-3 sm:px-6 sm:py-4 rounded-full shadow-2xl shadow-primary/40 transition-all hover:scale-105 active:scale-95 flex items-center gap-2 min-w-[140px] sm:min-w-[160px] justify-center focus:outline-none focus:ring-2 focus:ring-primary/50"
+          aria-label="Iniciar grabación de audio"
+          title="Iniciar grabación"
         >
-          <Mic size={20} className="sm:hidden" />
-          <Mic size={24} className="hidden sm:block" />
+          <Mic size={20} className="sm:hidden" aria-hidden="true" />
+          <Mic size={24} className="hidden sm:block" aria-hidden="true" />
           <span className="font-semibold text-sm sm:text-base">Grabar</span>
         </button>
-      </div>
+      </nav>
     </div>
   );
 };
