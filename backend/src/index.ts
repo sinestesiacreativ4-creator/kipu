@@ -53,29 +53,15 @@ const allowedOrigins = [
 ];
 
 app.use(cors({
-    origin: (origin, callback) => {
-        // Allow requests with no origin (like mobile apps or curl requests)
-        if (!origin) return callback(null, true);
-
-        // Explicitly allow your specific Vercel app
-        const allowedDomains = [
-            'https://kipu-alpha.vercel.app',
-            'http://localhost:5173',
-            'http://localhost:3000'
-        ];
-
-        if (allowedDomains.includes(origin) || origin.endsWith('.vercel.app')) {
-            return callback(null, true);
-        }
-
-        console.log(`[CORS] Blocked request from: ${origin}`);
-        callback(new Error('Not allowed by CORS'));
-    },
+    origin: true, // Reflect request origin
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'x-request-id', 'x-chunk-index', 'x-user-id', 'x-organization-id'],
     credentials: true,
     optionsSuccessStatus: 200
 }));
+
+// Enable pre-flight requests for all routes
+app.options('*', cors());
 
 // B. Body Parsers
 app.use(express.json({ limit: '50mb' }));
