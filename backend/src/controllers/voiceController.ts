@@ -135,14 +135,23 @@ export function setupVoiceWebSocket(wss: WebSocketServer) {
         ws.on('message', (data) => {
             try {
                 const message = JSON.parse(data.toString());
+                console.log(`[Voice] Received message from client (session ${sessionId}):`, message.type);
 
                 if (message.type === 'audio') {
                     // Forward audio to Gemini
                     const audioBuffer = Buffer.from(message.data, 'base64');
+                    console.log(`[Voice] Forwarding audio chunk to Gemini (${audioBuffer.length} bytes)`);
                     session.sendAudio(audioBuffer);
                 } else if (message.type === 'text') {
                     // Forward text to Gemini
+                    console.log(`[Voice] Forwarding text to Gemini:`, message.text);
                     session.sendText(message.text);
+                } else if (message.type === 'turn_complete') {
+                    // Signal that user finished speaking
+                    console.log(`[Voice] User finished speaking, signaling turn_complete to Gemini`);
+                    session.sendTurnComplete();
+                } else {
+                    console.warn(`[Voice] Unknown message type:`, message.type);
                 }
             } catch (error) {
                 console.error('[Voice] Error processing client message:', error);
@@ -152,7 +161,10 @@ export function setupVoiceWebSocket(wss: WebSocketServer) {
         // Forward messages from Gemini to client
         session.onMessage((geminiMessage) => {
             if (ws.readyState === WebSocket.OPEN) {
+                console.log(`[Voice] Forwarding message from Gemini to client (session ${sessionId})`);
                 ws.send(JSON.stringify(geminiMessage));
+            } else {
+                console.warn(`[Voice] Cannot forward message - WebSocket not open (state: ${ws.readyState})`);
             }
         });
 

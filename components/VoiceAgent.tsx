@@ -120,11 +120,22 @@ const VoiceAgent: React.FC<VoiceAgentProps> = ({ recordingId }) => {
 
     // Handle Server Messages
     const handleServerMessage = async (message: any) => {
+        console.log('[VoiceAgent] Received message from server:', message);
+        
+        // Check for setup complete
+        if (message.setupComplete) {
+            console.log('[VoiceAgent] Setup complete - ready to receive audio');
+            setStatus('Conectado - Habla ahora');
+        }
+        
         // 1. Audio Content
         if (message.serverContent?.modelTurn) {
             const parts = message.serverContent.modelTurn.parts;
+            console.log(`[VoiceAgent] Model turn with ${parts?.length || 0} parts`);
+            
             for (const part of parts) {
                 if (part.inlineData?.mimeType === 'audio/pcm') {
+                    console.log('[VoiceAgent] Received audio chunk, adding to queue');
                     // Add to queue and play
                     audioQueueRef.current.push(part.inlineData.data);
                     if (!isPlayingRef.current) {
@@ -132,6 +143,7 @@ const VoiceAgent: React.FC<VoiceAgentProps> = ({ recordingId }) => {
                     }
                 }
                 if (part.text) {
+                    console.log('[VoiceAgent] Received text:', part.text);
                     addMessage('assistant', part.text);
                 }
             }
@@ -139,7 +151,14 @@ const VoiceAgent: React.FC<VoiceAgentProps> = ({ recordingId }) => {
 
         // 2. Turn Complete
         if (message.serverContent?.turnComplete) {
+            console.log('[VoiceAgent] Turn complete');
             // AI finished generating current turn
+        }
+        
+        // Log any errors from Gemini
+        if (message.error) {
+            console.error('[VoiceAgent] Error from Gemini:', message.error);
+            setStatus('Error: ' + (message.error.message || 'Error desconocido'));
         }
     };
 
@@ -221,6 +240,11 @@ const VoiceAgent: React.FC<VoiceAgentProps> = ({ recordingId }) => {
             const processor = ctx.createScriptProcessor(4096, 1, 1);
             processorRef.current = processor;
 
+            let silenceCounter = 0;
+            let lastAudioSent = Date.now();
+            const SILENCE_THRESHOLD = 0.05; // Volume threshold for silence
+            const SILENCE_DURATION_MS = 1000; // 1 second of silence = end of speech
+
             processor.onaudioprocess = (e) => {
                 const inputData = e.inputBuffer.getChannelData(0);
 
@@ -243,6 +267,15 @@ const VoiceAgent: React.FC<VoiceAgentProps> = ({ recordingId }) => {
                     }
                 }
 
+                // Detect silence for end of speech
+                const isSilent = vol < SILENCE_THRESHOLD;
+                if (isSilent) {
+                    silenceCounter++;
+                } else {
+                    silenceCounter = 0;
+                    lastAudioSent = Date.now();
+                }
+
                 // Downsample to 16kHz if needed (Gemini requirement)
                 // Note: If context is 24kHz or 48kHz, we must downsample
                 const downsampled = downsampleBuffer(inputData, ctx.sampleRate, 16000);
@@ -255,10 +288,20 @@ const VoiceAgent: React.FC<VoiceAgentProps> = ({ recordingId }) => {
 
                 // Send to WebSocket (backend expects type: 'audio' format)
                 if (wsRef.current?.readyState === WebSocket.OPEN) {
+                    // Send audio chunk
                     wsRef.current.send(JSON.stringify({
                         type: 'audio',
                         data: base64
                     }));
+                    
+                    // If we've had silence for a while, send turn_complete
+                    if (isSilent && Date.now() - lastAudioSent > SILENCE_DURATION_MS && silenceCounter > 10) {
+                        console.log('[VoiceAgent] Sending turn_complete (silence detected)');
+                        wsRef.current.send(JSON.stringify({
+                            type: 'turn_complete'
+                        }));
+                        silenceCounter = 0; // Reset counter
+                    }
                 }
             };
 

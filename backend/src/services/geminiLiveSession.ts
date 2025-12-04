@@ -53,6 +53,19 @@ export class GeminiLiveSession {
             this.ws.on('message', (data) => {
                 try {
                     const message = JSON.parse(data.toString());
+                    console.log(`[GeminiLive] Received message from Gemini:`, JSON.stringify(message, null, 2));
+                    
+                    // Log specific message types
+                    if (message.setupComplete) {
+                        console.log(`[GeminiLive] Setup complete for session ${this.sessionId}`);
+                    }
+                    if (message.serverContent?.modelTurn) {
+                        console.log(`[GeminiLive] Model turn received with ${message.serverContent.modelTurn.parts?.length || 0} parts`);
+                    }
+                    if (message.serverContent?.turnComplete) {
+                        console.log(`[GeminiLive] Turn complete`);
+                    }
+                    
                     if (this.messageCallback) {
                         this.messageCallback(message);
                     }
@@ -116,6 +129,7 @@ INSTRUCCIONES:
             }
         };
 
+        console.log(`[GeminiLive] Sending audio chunk (${audioData.length} bytes)`);
         this.ws.send(JSON.stringify(message));
     }
 
@@ -135,6 +149,23 @@ INSTRUCCIONES:
             }
         };
 
+        console.log(`[GeminiLive] Sending text:`, text);
+        this.ws.send(JSON.stringify(message));
+    }
+
+    sendTurnComplete(): void {
+        if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+            console.warn(`[GeminiLive] WebSocket not ready`);
+            return;
+        }
+
+        const message = {
+            realtime_input: {
+                turn_complete: true
+            }
+        };
+
+        console.log(`[GeminiLive] Sending turn_complete`);
         this.ws.send(JSON.stringify(message));
     }
 
