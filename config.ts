@@ -1,3 +1,3 @@
 export const config = {
-    GEMINI_API_KEY: process.env.GEMINI_API_KEY || ''
+    GEMINI_API_KEY: import.meta.env.VITE_GEMINI_API_KEY || ''
 };
