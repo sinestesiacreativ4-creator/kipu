@@ -11,62 +11,62 @@ datasource db {
 }
 
 model Organization {
-  id              String       @id @default(uuid())
-  name            String
-  slug            String       @unique
-  code            String       @unique // Código único de organización (generado al pagar)
-  createdAt       DateTime     @default(now())
-  updatedAt       DateTime     @updatedAt
-  
+  id        String   @id @default(uuid())
+  name      String
+  slug      String   @unique
+  code      String   @unique // Código único de organización (generado al pagar)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   // Subscription & Billing
-  subscriptionId  String?      @unique
-  subscription    Subscription?
-  status          String       @default("TRIAL") // TRIAL, ACTIVE, SUSPENDED, CANCELLED
-  plan            String       @default("FREE") // FREE, STARTER, PROFESSIONAL, ENTERPRISE
-  trialEndsAt     DateTime?
-  billingEmail    String?
-  
+  subscriptionId String?       @unique
+  subscription   Subscription?
+  status         String        @default("TRIAL") // TRIAL, ACTIVE, SUSPENDED, CANCELLED
+  plan           String        @default("FREE") // FREE, STARTER, PROFESSIONAL, ENTERPRISE
+  trialEndsAt    DateTime?
+  billingEmail   String?
+
   // Limits & Usage
-  maxUsers        Int          @default(1)
-  maxRecordings   Int          @default(10)
-  maxStorageGB    Float        @default(1.0)
-  currentStorageGB Float       @default(0.0)
-  
-  profiles        Profile[]
-  recordings      Recording[]
-  appUsers        AppUser[]
-  payments        Payment[]
+  maxUsers         Int   @default(1)
+  maxRecordings    Int   @default(10)
+  maxStorageGB     Float @default(1.0)
+  currentStorageGB Float @default(0.0)
+
+  profiles         Profile[]
+  recordings       Recording[]
+  appUsers         AppUser[]
+  payments         Payment[]
   organizationCode OrganizationCode?
 }
 
 model Profile {
-  id             String       @id @default(uuid())
-  name           String
-  role           String       @default("user")
-  avatarColor    String
-  createdAt      DateTime     @default(now())
-  
+  id          String   @id @default(uuid())
+  name        String
+  role        String   @default("user")
+  avatarColor String
+  createdAt   DateTime @default(now())
+
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id])
-  
-  recordings     Recording[]
+
+  recordings Recording[]
 }
 
 model Recording {
-  id             String       @id @default(uuid())
-  duration       Float
-  status         String       @default("PROCESSING")
-  audioKey       String?      // Redis key for temporary storage or S3 key
-  analysis       Json?        // Stores the AI analysis result
-  createdAt      DateTime     @default(now())
-  
-  userId         String
-  user           Profile      @relation(fields: [userId], references: [id])
-  
+  id        String   @id @default(uuid())
+  duration  Float
+  status    String   @default("PROCESSING")
+  audioKey  String? // Redis key for temporary storage or S3 key
+  analysis  Json? // Stores the AI analysis result
+  createdAt DateTime @default(now())
+
+  userId String
+  user   Profile @relation(fields: [userId], references: [id])
+
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id])
-  
-  chunks         RecordingChunk[]
+
+  chunks RecordingChunk[]
 }
 
 model RecordingChunk {
@@ -77,74 +77,74 @@ model RecordingChunk {
   size        Int
   mimeType    String
   createdAt   DateTime @default(now())
-  
+
   recording Recording @relation(fields: [recordingId], references: [id], onDelete: Cascade)
-  
+
   @@unique([recordingId, sequence])
   @@index([recordingId])
 }
 
 model AppUser {
-  id             String        @id @default(uuid())
-  email          String        @unique
-  password       String
-  name           String
-  role           String        @default("USER") // USER, ADMIN, OWNER
-  createdAt      DateTime      @default(now())
-  lastLogin      DateTime?
-  
+  id        String    @id @default(uuid())
+  email     String    @unique
+  password  String
+  name      String
+  role      String    @default("USER") // USER, ADMIN, OWNER
+  createdAt DateTime  @default(now())
+  lastLogin DateTime?
+
   organizationId String?
   organization   Organization? @relation(fields: [organizationId], references: [id])
 }
 
 model Subscription {
-  id                String       @id @default(uuid())
-  organizationId    String       @unique
-  organization      Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  
+  id             String       @id @default(uuid())
+  organizationId String       @unique
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
   // Stripe/Payment Provider
-  stripeCustomerId  String?      @unique
-  stripeSubscriptionId String?   @unique
-  stripePriceId     String?
-  
+  stripeCustomerId     String? @unique
+  stripeSubscriptionId String? @unique
+  stripePriceId        String?
+
   // Plan Details
-  plan              String       // STARTER, PROFESSIONAL, ENTERPRISE
-  status            String       // active, canceled, past_due, trialing
+  plan               String // STARTER, PROFESSIONAL, ENTERPRISE
+  status             String // active, canceled, past_due, trialing
   currentPeriodStart DateTime?
   currentPeriodEnd   DateTime?
-  cancelAtPeriodEnd  Boolean      @default(false)
-  
+  cancelAtPeriodEnd  Boolean   @default(false)
+
   // Metadata
-  metadata          Json?
-  createdAt         DateTime      @default(now())
-  updatedAt         DateTime      @updatedAt
+  metadata  Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model Payment {
-  id              String       @id @default(uuid())
-  organizationId  String
-  organization    Organization @relation(fields: [organizationId], references: [id])
-  
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+
   // Payment Provider
   stripePaymentIntentId String? @unique
   stripeInvoiceId       String?
-  
+
   // Payment Details
-  amount          Float        // In cents
-  currency        String       @default("usd")
-  status          String       // succeeded, pending, failed, refunded
-  paymentMethod   String?      // card, bank_transfer, etc.
-  
+  amount        Float // In cents
+  currency      String  @default("usd")
+  status        String // succeeded, pending, failed, refunded
+  paymentMethod String? // card, bank_transfer, etc.
+
   // Organization Code (generated on successful payment)
-  organizationCode String?     @unique
+  organizationCode       String?           @unique
   organizationCodeRecord OrganizationCode?
-  
+
   // Metadata
-  description     String?
-  metadata        Json?
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
-  
+  description String?
+  metadata    Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
   @@index([organizationId])
   @@index([status])
   @@index([createdAt])
@@ -152,20 +152,19 @@ model Payment {
 }
 
 model OrganizationCode {
-  id              String       @id @default(uuid())
-  code            String       @unique // Código único de 8-12 caracteres
-  organizationId  String?      @unique // Optional until code is used
-  organization    Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  
+  id             String        @id @default(uuid())
+  code           String        @unique // Código único de 8-12 caracteres
+  organizationId String?       @unique // Optional until code is used
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
   // Code Details
-  paymentId       String?      // Link to payment that generated this code
-  payment         Payment?      @relation(fields: [paymentId], references: [id])
-  generatedAt     DateTime      @default(now())
-  expiresAt       DateTime?     // Optional expiration
-  usedAt          DateTime?     // When organization was created with this code
-  isActive        Boolean       @default(true)
-  
+  paymentId   String?   @unique // Link to payment that generated this code (unique for one-to-one)
+  payment     Payment?  @relation(fields: [paymentId], references: [id])
+  generatedAt DateTime  @default(now())
+  expiresAt   DateTime? // Optional expiration
+  usedAt      DateTime? // When organization was created with this code
+  isActive    Boolean   @default(true)
+
   @@index([code])
   @@index([organizationId])
-  @@index([paymentId])
 }
