@@ -51,10 +51,17 @@ const VoiceAgent: React.FC<VoiceAgentProps> = ({ recordingId }) => {
 
             // 1. Initialize Session via API
             // Direct connection to Render Backend (CORS must be enabled on backend)
-            const isDev = window.location.hostname === 'localhost';
-            const backendUrl = isDev
-                ? 'http://localhost:10000'
-                : 'https://kipu-backend-8006.onrender.com';
+            // IMPORTANT: Always use Render backend directly, Vercel can't proxy WebSockets
+            // Use environment variable if available, otherwise detect from hostname
+            const backendUrlEnv = import.meta.env.VITE_API_URL || import.meta.env.VITE_BACKEND_URL;
+            const isDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+            const backendUrl = backendUrlEnv 
+                ? backendUrlEnv
+                : (isDev
+                    ? 'http://localhost:10000'
+                    : 'https://kipu-backend-8006.onrender.com');
+            
+            console.log('[VoiceAgent] Backend URL:', backendUrl, 'Hostname:', window.location.hostname, 'Env:', backendUrlEnv);
 
             const response = await fetch(`${backendUrl}/api/voice/init/${recordingId}`, {
                 method: 'POST',
@@ -69,10 +76,14 @@ const VoiceAgent: React.FC<VoiceAgentProps> = ({ recordingId }) => {
             // WebSockets must connect directly as Vercel doesn't proxy them well
             setStatus('Conectando WebSocket...');
 
-            const isDev = window.location.hostname === 'localhost';
-            const wsProtocol = isDev ? 'ws:' : 'wss:';
-            const wsHost = isDev ? 'localhost:10000' : 'kipu-backend-8006.onrender.com';
+            // Extract host from backendUrl (remove http:// or https://)
+            const wsBackendUrl = backendUrlEnv || (isDev ? 'http://localhost:10000' : 'https://kipu-backend-8006.onrender.com');
+            const wsUrlObj = new URL(wsBackendUrl);
+            const wsProtocol = wsUrlObj.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsHost = wsUrlObj.host;
             const wsUrl = `${wsProtocol}//${wsHost}/voice?sessionId=${data.sessionId}`;
+            
+            console.log('[VoiceAgent] WebSocket URL:', wsUrl);
 
             const ws = new WebSocket(wsUrl);
             wsRef.current = ws;
@@ -275,7 +286,24 @@ const VoiceAgent: React.FC<VoiceAgentProps> = ({ recordingId }) => {
     };
 
     // Disconnect
-    const disconnect = () => {
+    const disconnect = async () => {
+        if (sessionIdRef.current) {
+            // Close session on backend
+            const backendUrlEnv = import.meta.env.VITE_API_URL || import.meta.env.VITE_BACKEND_URL;
+            const isDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+            const backendUrl = backendUrlEnv 
+                ? backendUrlEnv
+                : (isDev
+                    ? 'http://localhost:10000'
+                    : 'https://kipu-backend-8006.onrender.com');
+            
+            try {
+                await fetch(`${backendUrl}/api/voice/close/${sessionIdRef.current}`, { method: 'POST' });
+            } catch (error) {
+                console.error('[VoiceAgent] Error closing session:', error);
+            }
+        }
+        
         if (wsRef.current) wsRef.current.close();
         stopRecording();
         if (currentSourceRef.current) currentSourceRef.current.stop();
