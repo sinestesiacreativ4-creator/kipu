@@ -57,22 +57,18 @@ app.use(cors({
         // Allow requests with no origin (like mobile apps or curl requests)
         if (!origin) return callback(null, true);
 
-        // Allow allowed origins
-        if (allowedOrigins.indexOf(origin) !== -1) {
+        // Explicitly allow your specific Vercel app
+        const allowedDomains = [
+            'https://kipu-alpha.vercel.app',
+            'http://localhost:5173',
+            'http://localhost:3000'
+        ];
+
+        if (allowedDomains.includes(origin) || origin.endsWith('.vercel.app')) {
             return callback(null, true);
         }
 
-        // Allow all Vercel deployments (preview & production)
-        if (origin.endsWith('.vercel.app')) {
-            return callback(null, true);
-        }
-
-        // Allow localhost in development
-        if (origin.includes('localhost') || origin.includes('127.0.0.1')) {
-            return callback(null, true);
-        }
-
-        console.warn(`[CORS] Blocked request from: ${origin}`);
+        console.log(`[CORS] Blocked request from: ${origin}`);
         callback(new Error('Not allowed by CORS'));
     },
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
