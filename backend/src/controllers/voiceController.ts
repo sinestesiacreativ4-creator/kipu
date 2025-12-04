@@ -228,21 +228,46 @@ router.post('/close/:sessionId', (req: Request, res: Response) => {
  */
 export function setupVoiceWebSocket(wss: WebSocketServer) {
     wss.on('connection', (ws: WebSocket, req) => {
-        // Support both query param (?sessionId=xxx) and path param (/api/voice/ws/:sessionId)
-        let sessionId = new URL(req.url!, `http://${req.headers.host}`).searchParams.get('sessionId');
+        const url = req.url || '';
+        console.log(`[Voice] WebSocket connection attempt to: ${url}`);
+        
+        // Support multiple formats:
+        // 1. /voice?sessionId=xxx (legacy)
+        // 2. /api/voice/ws/xxx (new format with sessionId in path)
+        // 3. /api/voice/ws?sessionId=xxx (new format with query param)
+        
+        let sessionId: string | null = null;
+        
+        // Try query param first
+        try {
+            const urlObj = new URL(url, `http://${req.headers.host}`);
+            sessionId = urlObj.searchParams.get('sessionId');
+        } catch (e) {
+            // URL parsing failed, try regex
+        }
         
         // If no query param, try to extract from path
-        if (!sessionId && req.url) {
-            const pathMatch = req.url.match(/\/api\/voice\/ws\/([^/?]+)/);
+        if (!sessionId) {
+            // Match /api/voice/ws/sessionId or /voice?sessionId=xxx
+            const pathMatch = url.match(/\/(?:api\/voice\/ws|voice)\/([^/?]+)/);
             if (pathMatch) {
                 sessionId = pathMatch[1];
+            } else {
+                // Try legacy format /voice?sessionId=xxx
+                const legacyMatch = url.match(/[?&]sessionId=([^&]+)/);
+                if (legacyMatch) {
+                    sessionId = legacyMatch[1];
+                }
             }
         }
 
         if (!sessionId) {
+            console.error(`[Voice] Missing sessionId in URL: ${url}`);
             ws.close(1008, 'Missing sessionId');
             return;
         }
+        
+        console.log(`[Voice] Extracted sessionId: ${sessionId} from URL: ${url}`);
 
         const session = activeSessions.get(sessionId);
         if (!session) {

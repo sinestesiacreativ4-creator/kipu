@@ -144,10 +144,9 @@ const server = createServer(app);
 
 // Setup WebSocket for voice chat
 // Support both /voice (legacy) and /api/voice/ws/:sessionId (new format)
-const wss = new WebSocketServer({ server, path: '/voice' });
-const wssNew = new WebSocketServer({ server, path: '/api/voice/ws' });
+// Note: WebSocketServer path must match exactly, so we handle all connections and filter in the handler
+const wss = new WebSocketServer({ server });
 setupVoiceWebSocket(wss);
-setupVoiceWebSocket(wssNew);
 console.log('✅ WebSocket server configured for /voice and /api/voice/ws');
 
 server.listen(PORT, () => {
