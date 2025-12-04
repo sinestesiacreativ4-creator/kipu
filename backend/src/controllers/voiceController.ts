@@ -50,9 +50,12 @@ ${analysis.actionItems?.length > 0 ? `TAREAS:\n${analysis.actionItems.map((a: st
         const session = new GeminiLiveSession(sessionId, context);
 
         // Connect to Gemini Live API
+        console.log(`[Voice] Connecting to Gemini Live API for session ${sessionId}...`);
         await session.connect();
+        console.log(`[Voice] Connected to Gemini Live API for session ${sessionId}`);
 
-        // Store session
+        // Store session BEFORE setting up message forwarding
+        // This ensures messages are queued if client connects later
         activeSessions.set(sessionId, session);
 
         // Auto-cleanup after 30 minutes
@@ -81,6 +84,8 @@ ${analysis.actionItems?.length > 0 ? `TAREAS:\n${analysis.actionItems.map((a: st
             errorMessage = 'Recording not found or not analyzed yet.';
         } else if (error.message?.includes('model') || error.message?.includes('unavailable')) {
             errorMessage = 'Gemini Live API model is not available. The model gemini-2.0-flash-exp may not be accessible for your API key.';
+        } else if (error.message?.includes('quota') || error.message?.includes('exceeded')) {
+            errorMessage = 'Has excedido tu cuota de Gemini API. Por favor verifica tu plan y facturación en https://ai.google.dev/pricing';
         }
         
         res.status(500).json({ error: errorMessage });

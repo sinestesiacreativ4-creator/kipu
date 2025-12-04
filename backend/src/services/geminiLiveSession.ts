@@ -11,6 +11,7 @@ export class GeminiLiveSession {
     private sessionId: string;
     private analysisContext: string;
     private messageCallback: ((data: any) => void) | null = null;
+    private messageQueue: any[] = []; // Queue messages until callback is set
 
     constructor(sessionId: string, analysisContext: string) {
         this.sessionId = sessionId;
@@ -23,8 +24,9 @@ export class GeminiLiveSession {
             throw new Error('GEMINI_API_KEY is not configured');
         }
         
-        // Try gemini-2.0-flash-exp first (most common), fallback to gemini-2.5-flash-live
-        const model = 'gemini-2.0-flash-exp';
+        // Use gemini-2.5-flash-live which supports Live API (real-time audio)
+        // gemini-2.0-flash-exp may not support Live API
+        const model = 'gemini-2.5-flash-live';
 
         // Gemini Live API WebSocket URL
         const wsUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${apiKey}`;
@@ -40,13 +42,28 @@ export class GeminiLiveSession {
                 resolve();
             });
 
-            this.ws.on('error', (error) => {
-                console.error(`[GeminiLive] Error:`, error);
+            this.ws.on('error', (error: any) => {
+                console.error(`[GeminiLive] WebSocket error:`, error);
+                console.error(`[GeminiLive] Error details:`, error.message, error.code);
                 reject(error);
             });
 
             this.ws.on('close', (code, reason) => {
-                console.log(`[GeminiLive] Session ${this.sessionId} closed (code: ${code}, reason: ${reason})`);
+                const reasonStr = reason ? reason.toString() : 'No reason provided';
+                console.log(`[GeminiLive] Session ${this.sessionId} closed (code: ${code}, reason: ${reasonStr})`);
+                
+                // Log common error codes
+                if (code === 1006) {
+                    console.error(`[GeminiLive] Abnormal closure - connection lost. Possible causes: model not available, API key invalid, or network issue.`);
+                } else if (code === 1008) {
+                    console.error(`[GeminiLive] Policy violation - check API key permissions and model availability.`);
+                } else if (code === 1011) {
+                    console.error(`[GeminiLive] ❌ QUOTA EXCEEDED - You have exceeded your Gemini API quota.`);
+                    console.error(`[GeminiLive] Please check your billing and plan at: https://ai.google.dev/pricing`);
+                    console.error(`[GeminiLive] Reason: ${reasonStr}`);
+                } else if (code !== 1000 && code !== 1001) {
+                    console.error(`[GeminiLive] Unexpected close code: ${code}`);
+                }
             });
 
             // Set up message handler
@@ -66,8 +83,13 @@ export class GeminiLiveSession {
                         console.log(`[GeminiLive] Turn complete`);
                     }
                     
+                    // If callback is set, call it immediately
+                    // Otherwise, queue the message
                     if (this.messageCallback) {
                         this.messageCallback(message);
+                    } else {
+                        console.log(`[GeminiLive] Queueing message (no callback yet)`);
+                        this.messageQueue.push(message);
                     }
                 } catch (error) {
                     console.error(`[GeminiLive] Error parsing message:`, error);
@@ -81,7 +103,7 @@ export class GeminiLiveSession {
 
         const setupMessage = {
             setup: {
-                model: 'models/gemini-2.0-flash-exp',
+                model: 'models/gemini-2.5-flash-live',
                 generation_config: {
                     response_modalities: ['AUDIO'],
                     speech_config: {
@@ -110,7 +132,9 @@ INSTRUCCIONES:
             }
         };
 
-        this.ws.send(JSON.stringify(setupMessage));
+        const setupJson = JSON.stringify(setupMessage);
+        console.log(`[GeminiLive] Sending setup for session ${this.sessionId}:`, setupJson);
+        this.ws.send(setupJson);
         console.log(`[GeminiLive] Setup sent for session ${this.sessionId}`);
     }
 
@@ -171,6 +195,13 @@ INSTRUCCIONES:
 
     onMessage(callback: (data: any) => void): void {
         this.messageCallback = callback;
+        
+        // Process any queued messages
+        console.log(`[GeminiLive] Callback set, processing ${this.messageQueue.length} queued messages`);
+        while (this.messageQueue.length > 0) {
+            const queuedMessage = this.messageQueue.shift();
+            callback(queuedMessage);
+        }
     }
 
     close(): void {
