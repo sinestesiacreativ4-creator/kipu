@@ -33,10 +33,28 @@ export class GeminiLiveSession {
         // Gemini Live API WebSocket URL
         const wsUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${apiKey}`;
 
+        console.log(`[GeminiLive] 🔌 Attempting to connect to Gemini Live API...`);
+        console.log(`[GeminiLive] Model: ${model}`);
+        console.log(`[GeminiLive] URL: ${wsUrl.replace(apiKey, '***')}`);
+
         return new Promise((resolve, reject) => {
-            this.ws = new WebSocket(wsUrl);
+            let connectionTimeout: NodeJS.Timeout;
+            let resolved = false;
+
+            try {
+                this.ws = new WebSocket(wsUrl);
+                console.log(`[GeminiLive] WebSocket instance created, state: ${this.ws.readyState} (0=CONNECTING)`);
+            } catch (error: any) {
+                console.error(`[GeminiLive] ❌ Failed to create WebSocket:`, error);
+                reject(error);
+                return;
+            }
 
             this.ws.on('open', () => {
+                if (resolved) return; // Already resolved/rejected
+                resolved = true;
+                if (connectionTimeout) clearTimeout(connectionTimeout);
+                
                 console.log(`[GeminiLive] ✅ WebSocket OPEN for session ${this.sessionId}`);
                 console.log(`[GeminiLive] WebSocket state: ${this.ws?.readyState} (should be 1=OPEN)`);
 
@@ -46,14 +64,28 @@ export class GeminiLiveSession {
             });
 
             this.ws.on('error', (error: any) => {
-                console.error(`[GeminiLive] WebSocket error:`, error);
+                if (resolved) return; // Already resolved/rejected
+                resolved = true;
+                if (connectionTimeout) clearTimeout(connectionTimeout);
+                
+                console.error(`[GeminiLive] ❌ WebSocket error:`, error);
                 console.error(`[GeminiLive] Error details:`, error.message, error.code);
+                console.error(`[GeminiLive] Error stack:`, error.stack);
                 reject(error);
             });
 
             this.ws.on('close', (code, reason) => {
                 const reasonStr = reason ? reason.toString() : 'No reason provided';
-                console.log(`[GeminiLive] Session ${this.sessionId} closed (code: ${code}, reason: ${reasonStr})`);
+                console.log(`[GeminiLive] 🔌 Session ${this.sessionId} closed (code: ${code}, reason: ${reasonStr})`);
+                
+                // If closed before connection was established, reject the promise
+                if (!resolved) {
+                    resolved = true;
+                    if (connectionTimeout) clearTimeout(connectionTimeout);
+                    const error = new Error(`WebSocket closed before connection established (code: ${code}, reason: ${reasonStr})`);
+                    console.error(`[GeminiLive] ❌ Connection failed:`, error.message);
+                    reject(error);
+                }
                 
                 // Reset state
                 this.setupComplete = false;
@@ -65,6 +97,7 @@ export class GeminiLiveSession {
                 } else if (code === 1008) {
                     console.error(`[GeminiLive] Policy violation - check API key permissions and model availability.`);
                     console.error(`[GeminiLive] The model 'gemini-2.5-flash-live' may not be available for your account.`);
+                    console.error(`[GeminiLive] Try using 'gemini-2.0-flash' or 'gemini-1.5-flash-live' instead.`);
                 } else if (code === 1011) {
                     console.error(`[GeminiLive] ❌ QUOTA EXCEEDED - You have exceeded your Gemini API quota.`);
                     console.error(`[GeminiLive] Please check your billing and plan at: https://ai.google.dev/pricing`);
@@ -73,6 +106,18 @@ export class GeminiLiveSession {
                     console.error(`[GeminiLive] Unexpected close code: ${code}`);
                 }
             });
+
+            // Set connection timeout
+            connectionTimeout = setTimeout(() => {
+                if (!resolved) {
+                    resolved = true;
+                    console.error(`[GeminiLive] ❌ Connection timeout after 10 seconds`);
+                    if (this.ws) {
+                        this.ws.close();
+                    }
+                    reject(new Error('Connection timeout - Gemini Live API did not respond'));
+                }
+            }, 10000);
 
             // Set up message handler
             this.ws.on('message', (data) => {

@@ -51,8 +51,15 @@ ${analysis.actionItems?.length > 0 ? `TAREAS:\n${analysis.actionItems.map((a: st
 
         // Connect to Gemini Live API
         console.log(`[Voice] Connecting to Gemini Live API for session ${sessionId}...`);
-        await session.connect();
-        console.log(`[Voice] Connected to Gemini Live API for session ${sessionId}`);
+        try {
+            await session.connect();
+            console.log(`[Voice] ✅ Connected to Gemini Live API for session ${sessionId}`);
+        } catch (connectError: any) {
+            console.error(`[Voice] ❌ Failed to connect to Gemini Live API:`, connectError);
+            console.error(`[Voice] Error message:`, connectError.message);
+            console.error(`[Voice] Error stack:`, connectError.stack);
+            throw connectError; // Re-throw to be caught by outer catch
+        }
 
         // Store session BEFORE setting up message forwarding
         // This ensures messages are queued if client connects later
