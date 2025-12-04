@@ -99,10 +99,12 @@ export class GeminiLiveSession {
                 }
             }, 10000);
             
+            // Track if setup was sent
+            let setupSent = false;
+            let setupTimeout: NodeJS.Timeout | null = null;
+            
             this.ws.on('open', () => {
                 if (resolved) return;
-                resolved = true;
-                if (connectionTimeout) clearTimeout(connectionTimeout);
                 
                 console.log(`[GeminiLive] ✅ WebSocket OPEN for session ${this.sessionId} with model ${model}`);
                 console.log(`[GeminiLive] WebSocket state: ${this.ws?.readyState} (should be 1=OPEN)`);
@@ -110,22 +112,37 @@ export class GeminiLiveSession {
                 // Send initial setup message
                 try {
                     this.sendSetup(model);
+                    setupSent = true;
                     console.log(`[GeminiLive] Setup message sent, waiting for setupComplete...`);
                     
                     // Set a timeout to detect if setup never completes
-                    setTimeout(() => {
+                    setupTimeout = setTimeout(() => {
                         if (!this.setupComplete && this.ws && this.ws.readyState === WebSocket.OPEN) {
-                            console.warn(`[GeminiLive] ⚠️ Setup message sent but setupComplete not received after 5 seconds`);
-                            console.warn(`[GeminiLive] This may indicate the setup message was rejected or the model is not compatible`);
+                            console.error(`[GeminiLive] ❌ Setup timeout: setupComplete not received after 5 seconds`);
+                            console.error(`[GeminiLive] This indicates the setup message was rejected or the model is not compatible`);
+                            // Close and reject to try next model
+                            if (this.ws) {
+                                this.ws.close();
+                            }
+                            if (!resolved) {
+                                resolved = true;
+                                if (connectionTimeout) clearTimeout(connectionTimeout);
+                                reject(new Error(`Setup timeout: ${model} did not respond with setupComplete`));
+                            }
                         }
                     }, 5000);
                 } catch (setupError: any) {
                     console.error(`[GeminiLive] ❌ Error sending setup:`, setupError);
+                    if (!resolved) {
+                        resolved = true;
+                        if (connectionTimeout) clearTimeout(connectionTimeout);
+                        if (setupTimeout) clearTimeout(setupTimeout);
+                    }
                     reject(setupError);
                     return;
                 }
                 
-                resolve();
+                // Don't resolve yet - wait for setupComplete
             });
             
             this.ws.on('error', (error: any) => {
@@ -141,26 +158,39 @@ export class GeminiLiveSession {
             this.ws.on('close', (code, reason) => {
                 const reasonStr = reason ? reason.toString() : 'No reason provided';
                 console.log(`[GeminiLive] 🔌 Session ${this.sessionId} closed (code: ${code}, reason: ${reasonStr}) for model ${model}`);
-                console.log(`[GeminiLive] Setup was complete: ${this.setupComplete}, Audio queue length: ${this.audioQueue.length}`);
+                console.log(`[GeminiLive] Setup was sent: ${setupSent}, Setup was complete: ${this.setupComplete}, Audio queue length: ${this.audioQueue.length}`);
                 
-                // If closed before connection was established, reject the promise
-                if (!resolved) {
-                    resolved = true;
-                    if (connectionTimeout) clearTimeout(connectionTimeout);
-                    const error = new Error(`WebSocket closed before connection established (code: ${code}, reason: ${reasonStr}) for model ${model}`);
-                    console.error(`[GeminiLive] ❌ Connection failed:`, error.message);
-                    reject(error);
-                } else {
-                    // Connection was established but then closed
-                    console.error(`[GeminiLive] ⚠️ WebSocket closed AFTER connection was established!`);
-                    console.error(`[GeminiLive] This usually means Gemini rejected the setup or there was an error.`);
-                    console.error(`[GeminiLive] Check the setup message format and model availability.`);
+                // Clear setup timeout if exists
+                if (setupTimeout) {
+                    clearTimeout(setupTimeout);
+                    setupTimeout = null;
+                }
+                
+                // If closed before setupComplete was received, reject to try next model
+                if (!resolved || (setupSent && !this.setupComplete)) {
+                    if (!resolved) {
+                        resolved = true;
+                        if (connectionTimeout) clearTimeout(connectionTimeout);
+                    }
                     
-                    // If setup was not complete and we got a 1008 error, this model doesn't support Live API
-                    if (code === 1008 && !this.setupComplete) {
-                        console.error(`[GeminiLive] Model ${model} does not support bidiGenerateContent (Live API)`);
+                    const errorMsg = setupSent && !this.setupComplete
+                        ? `WebSocket closed before setupComplete (code: ${code}, reason: ${reasonStr}) for model ${model}`
+                        : `WebSocket closed before connection established (code: ${code}, reason: ${reasonStr}) for model ${model}`;
+                    
+                    const error = new Error(errorMsg);
+                    console.error(`[GeminiLive] ❌ Connection failed:`, error.message);
+                    
+                    // If setup was sent but not completed, this model likely doesn't work
+                    if (setupSent && !this.setupComplete) {
+                        console.error(`[GeminiLive] Model ${model} rejected setup or is not compatible with Live API`);
                         console.error(`[GeminiLive] Will try next model in fallback list...`);
                     }
+                    
+                    reject(error);
+                } else {
+                    // Connection was fully established (setupComplete received) but then closed
+                    console.error(`[GeminiLive] ⚠️ WebSocket closed AFTER setup was complete!`);
+                    console.error(`[GeminiLive] This usually means an error occurred during the session.`);
                 }
                 
                 // Reset state
@@ -200,6 +230,19 @@ export class GeminiLiveSession {
                     if (message.setupComplete) {
                         console.log(`[GeminiLive] ✅ Setup complete for session ${this.sessionId} with model ${model}`);
                         this.setupComplete = true;
+                        
+                        // Clear setup timeout
+                        if (setupTimeout) {
+                            clearTimeout(setupTimeout);
+                            setupTimeout = null;
+                        }
+                        
+                        // Now resolve the promise - connection is fully ready
+                        if (!resolved) {
+                            resolved = true;
+                            if (connectionTimeout) clearTimeout(connectionTimeout);
+                            resolve();
+                        }
                         
                         // Send any queued audio
                         console.log(`[GeminiLive] Processing ${this.audioQueue.length} queued audio chunks`);
