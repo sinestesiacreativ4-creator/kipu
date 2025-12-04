@@ -17,6 +17,7 @@ import organizationRoutes from './controllers/organizationController';
 import recordingRoutes from './controllers/recordingController';
 import profileRoutes from './controllers/profileController';
 import statusRoutes from './controllers/statusController';
+import paymentRoutes from './controllers/paymentController';
 import { errorHandler } from './middleware/errorHandler';
 import { TempManager } from './services/tempManager';
 import { initTempFolders } from './config/upload.config';
@@ -117,6 +118,9 @@ app.use('/api', statusRoutes); // Status polling for recordings
 // Voice API Routes
 import voiceRoutes from './controllers/voiceController';
 app.use('/api/voice', voiceRoutes);
+
+// Payment API Routes
+app.use('/api/payments', paymentRoutes);
 
 app.use('/', robustUploadRoutes); // Legacy/Robust routes
 

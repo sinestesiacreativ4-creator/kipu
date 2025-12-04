@@ -5,10 +5,14 @@
     "main": "dist/index.js",
     "scripts": {
         "build": "npm install && npx prisma generate && tsc",
-        "start": "npx prisma db push --accept-data-loss && node dist/index.js",
+        "start": "npx prisma generate && npx prisma migrate deploy && node dist/index.js",
+        "start:dev": "npx prisma db push --accept-data-loss && node dist/index.js",
         "start:worker": "node dist/workers/audioWorker.js",
         "dev": "ts-node-dev src/index.ts",
-        "worker": "ts-node-dev src/workers/audioWorker.ts"
+        "worker": "ts-node-dev src/workers/audioWorker.ts",
+        "migrate": "npx prisma migrate dev",
+        "migrate:deploy": "npx prisma migrate deploy",
+        "db:push": "npx prisma db push --accept-data-loss"
     },
     "dependencies": {
         "@google/generative-ai": "^0.24.1",

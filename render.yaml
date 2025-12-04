@@ -5,8 +5,8 @@ services:
     env: node
     plan: free
     rootDir: backend
-    buildCommand: npm run build
-    startCommand: npx prisma generate && npx prisma db push --accept-data-loss && node dist/index.js
+    buildCommand: npm install && npm run build
+    startCommand: npx prisma generate && npx prisma migrate deploy && node dist/index.js
     envVars:
       - key: NODE_ENV
         value: production
@@ -23,6 +23,20 @@ services:
       - key: GEMINI_API_KEY
         sync: false
       - key: FRONTEND_URL
+        sync: false
+      # PayU Payment Integration (Colombia)
+      - key: PAYU_API_KEY
+        sync: false
+      - key: PAYU_API_LOGIN
+        sync: false
+      - key: PAYU_MERCHANT_ID
+        sync: false
+      - key: PAYU_ACCOUNT_ID
+        sync: false
+      - key: PAYU_TEST_MODE
+        value: "true"
+      # Backend URL for webhooks
+      - key: BACKEND_URL
         sync: false
     # Render soporta WebSockets automáticamente en servicios web
 

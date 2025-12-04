@@ -11,14 +11,32 @@ datasource db {
 }
 
 model Organization {
-  id        String      @id @default(uuid())
-  name      String
-  slug      String      @unique
-  createdAt DateTime    @default(now())
+  id              String       @id @default(uuid())
+  name            String
+  slug            String       @unique
+  code            String       @unique // Código único de organización (generado al pagar)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
   
-  profiles  Profile[]
-  recordings Recording[]
-  appUsers   AppUser[]
+  // Subscription & Billing
+  subscriptionId  String?      @unique
+  subscription    Subscription?
+  status          String       @default("TRIAL") // TRIAL, ACTIVE, SUSPENDED, CANCELLED
+  plan            String       @default("FREE") // FREE, STARTER, PROFESSIONAL, ENTERPRISE
+  trialEndsAt     DateTime?
+  billingEmail    String?
+  
+  // Limits & Usage
+  maxUsers        Int          @default(1)
+  maxRecordings   Int          @default(10)
+  maxStorageGB    Float        @default(1.0)
+  currentStorageGB Float       @default(0.0)
+  
+  profiles        Profile[]
+  recordings      Recording[]
+  appUsers        AppUser[]
+  payments        Payment[]
+  organizationCode OrganizationCode?
 }
 
 model Profile {
@@ -71,9 +89,83 @@ model AppUser {
   email          String        @unique
   password       String
   name           String
-  role           String        @default("USER")
+  role           String        @default("USER") // USER, ADMIN, OWNER
   createdAt      DateTime      @default(now())
+  lastLogin      DateTime?
   
   organizationId String?
   organization   Organization? @relation(fields: [organizationId], references: [id])
+}
+
+model Subscription {
+  id                String       @id @default(uuid())
+  organizationId    String       @unique
+  organization      Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  
+  // Stripe/Payment Provider
+  stripeCustomerId  String?      @unique
+  stripeSubscriptionId String?   @unique
+  stripePriceId     String?
+  
+  // Plan Details
+  plan              String       // STARTER, PROFESSIONAL, ENTERPRISE
+  status            String       // active, canceled, past_due, trialing
+  currentPeriodStart DateTime?
+  currentPeriodEnd   DateTime?
+  cancelAtPeriodEnd  Boolean      @default(false)
+  
+  // Metadata
+  metadata          Json?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+}
+
+model Payment {
+  id              String       @id @default(uuid())
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id])
+  
+  // Payment Provider
+  stripePaymentIntentId String? @unique
+  stripeInvoiceId       String?
+  
+  // Payment Details
+  amount          Float        // In cents
+  currency        String       @default("usd")
+  status          String       // succeeded, pending, failed, refunded
+  paymentMethod   String?      // card, bank_transfer, etc.
+  
+  // Organization Code (generated on successful payment)
+  organizationCode String?     @unique
+  organizationCodeRecord OrganizationCode?
+  
+  // Metadata
+  description     String?
+  metadata        Json?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  
+  @@index([organizationId])
+  @@index([status])
+  @@index([createdAt])
+  @@index([organizationCode])
+}
+
+model OrganizationCode {
+  id              String       @id @default(uuid())
+  code            String       @unique // Código único de 8-12 caracteres
+  organizationId  String?      @unique // Optional until code is used
+  organization    Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  
+  // Code Details
+  paymentId       String?      // Link to payment that generated this code
+  payment         Payment?      @relation(fields: [paymentId], references: [id])
+  generatedAt     DateTime      @default(now())
+  expiresAt       DateTime?     // Optional expiration
+  usedAt          DateTime?     // When organization was created with this code
+  isActive        Boolean       @default(true)
+  
+  @@index([code])
+  @@index([organizationId])
+  @@index([paymentId])
 }

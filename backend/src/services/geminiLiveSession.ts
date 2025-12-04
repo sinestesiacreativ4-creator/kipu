@@ -44,15 +44,34 @@ export class GeminiLiveSession {
         for (let i = 0; i < modelsToTry.length; i++) {
             const model = modelsToTry[i];
             this.currentModel = model;
-            console.log(`[GeminiLive] 🔌 [${i + 1}/${modelsToTry.length}] Attempting to connect to Gemini Live API with model: ${model}`);
+            
+            // Determine API version based on model
+            // Newer models (2.5+) might need v1beta, older ones use v1alpha
+            const apiVersion = model.includes('2.5') || model.includes('native-audio') ? 'v1beta' : 'v1alpha';
+            
+            console.log(`[GeminiLive] 🔌 [${i + 1}/${modelsToTry.length}] Attempting to connect to Gemini Live API with model: ${model} (API: ${apiVersion})`);
             
             try {
-                await this._attemptConnect(apiKey, model);
-                console.log(`[GeminiLive] ✅ Successfully connected with model: ${model} (attempt ${i + 1}/${modelsToTry.length})`);
+                await this._attemptConnect(apiKey, model, apiVersion);
+                console.log(`[GeminiLive] ✅ Successfully connected with model: ${model} using ${apiVersion} (attempt ${i + 1}/${modelsToTry.length})`);
                 return; // Connection successful
             } catch (error: any) {
                 lastError = error;
-                console.error(`[GeminiLive] ❌ [${i + 1}/${modelsToTry.length}] Failed to connect with model ${model}:`, error.message);
+                console.error(`[GeminiLive] ❌ [${i + 1}/${modelsToTry.length}] Failed to connect with model ${model} (${apiVersion}):`, error.message);
+                
+                // If error mentions API version, try the other version
+                if (error.message?.includes('API version') && !error.message?.includes('quota')) {
+                    const alternateVersion = apiVersion === 'v1alpha' ? 'v1beta' : 'v1alpha';
+                    console.log(`[GeminiLive] 🔄 Retrying with alternate API version: ${alternateVersion}`);
+                    try {
+                        await this._attemptConnect(apiKey, model, alternateVersion);
+                        console.log(`[GeminiLive] ✅ Successfully connected with model: ${model} using ${alternateVersion} (after retry)`);
+                        return; // Connection successful
+                    } catch (retryError: any) {
+                        console.error(`[GeminiLive] ❌ Retry with ${alternateVersion} also failed:`, retryError.message);
+                        lastError = retryError;
+                    }
+                }
                 
                 // Close WebSocket if it exists
                 if (this.ws) {
@@ -77,15 +96,16 @@ export class GeminiLiveSession {
         throw new Error(`Failed to connect to Gemini Live API after trying all models. Last error: ${lastError?.message || 'Unknown error'}`);
     }
     
-    private _attemptConnect(apiKey: string, model: string): Promise<void> {
+    private _attemptConnect(apiKey: string, model: string, apiVersion: 'v1alpha' | 'v1beta' = 'v1alpha'): Promise<void> {
         return new Promise((resolve, reject) => {
             this.setupComplete = false; // Reset for each attempt
             this.audioQueue = []; // Clear queue for new attempt
             
             // Gemini Live API WebSocket URL
-            const wsUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${apiKey}`;
+            // Try v1beta for newer models, v1alpha for older ones
+            const wsUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.${apiVersion}.GenerativeService.BidiGenerateContent?key=${apiKey}`;
             
-            console.log(`[GeminiLive] Model: ${model}`);
+            console.log(`[GeminiLive] Model: ${model}, API Version: ${apiVersion}`);
             console.log(`[GeminiLive] URL: ${wsUrl.replace(apiKey, '***')}`);
             
             let connectionTimeout: NodeJS.Timeout;

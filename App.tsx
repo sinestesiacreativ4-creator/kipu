@@ -7,6 +7,7 @@ import ProfileSelector from './components/ProfileSelector';
 import AuthScreen from './components/AuthScreen';
 import OrgLogin from './components/OrgLogin';
 import UploadProgress from './components/UploadProgress';
+import AudioUploader from './components/AudioUploader';
 import { Recording, RecordingStatus, Marker, UserProfile, Organization } from './types';
 import { blobToBase64, formatTime, generateId } from './utils';
 import { safeStorage } from './utils/safeStorage';
@@ -103,6 +104,14 @@ const Dashboard = ({
           </div>
         </div>
       )}
+
+      {/* Audio Uploader Section - Desktop */}
+      <div className="hidden md:block mb-8">
+        <AudioUploader
+          onFileUpload={onFileUpload}
+          maxSizeMB={500}
+        />
+      </div>
 
       {/* Recent Section */}
       <section aria-labelledby="recent-recordings-heading">
@@ -209,6 +218,14 @@ const Dashboard = ({
           </div>
         )}
       </section>
+
+      {/* Audio Uploader Section - Desktop */}
+      <div className="hidden md:block mb-8">
+        <AudioUploader
+          onFileUpload={onFileUpload}
+          maxSizeMB={500}
+        />
+      </div>
 
       {/* Mobile-Optimized Action Buttons */}
       <nav 
