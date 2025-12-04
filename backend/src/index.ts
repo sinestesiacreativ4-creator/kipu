@@ -143,9 +143,12 @@ import { setupVoiceWebSocket } from './controllers/voiceController';
 const server = createServer(app);
 
 // Setup WebSocket for voice chat
+// Support both /voice (legacy) and /api/voice/ws/:sessionId (new format)
 const wss = new WebSocketServer({ server, path: '/voice' });
+const wssNew = new WebSocketServer({ server, path: '/api/voice/ws' });
 setupVoiceWebSocket(wss);
-console.log('✅ WebSocket server configured for /voice');
+setupVoiceWebSocket(wssNew);
+console.log('✅ WebSocket server configured for /voice and /api/voice/ws');
 
 server.listen(PORT, () => {
     console.log(`\n🚀 Server running on port ${PORT}`);

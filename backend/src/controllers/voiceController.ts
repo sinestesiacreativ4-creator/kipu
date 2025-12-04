@@ -9,6 +9,46 @@ const router = Router();
 const activeSessions = new Map<string, GeminiLiveSession>();
 
 /**
+ * Get WebSocket URL for voice session
+ * POST /api/voice/init/:sessionId
+ * Simple endpoint that returns session info for frontend to connect
+ */
+router.post('/init/:sessionId', (req: Request, res: Response) => {
+    try {
+        const { sessionId } = req.params;
+
+        // Detect backend URL automatically
+        const protocol = req.protocol === 'https' ? 'wss' : 'ws';
+        const host = req.get('host') || 'kipu-backend-8006.onrender.com';
+        const wsUrl = `${protocol}://${host}/api/voice/ws/${sessionId}`;
+
+        // Alternative: Use environment variable if set
+        const backendUrl = process.env.BACKEND_URL || process.env.RENDER_EXTERNAL_URL;
+        const finalWsUrl = backendUrl 
+            ? `${backendUrl.startsWith('https') ? 'wss' : 'ws'}://${new URL(backendUrl).host}/api/voice/ws/${sessionId}`
+            : wsUrl;
+
+        const response = {
+            success: true,
+            sessionId: sessionId,
+            wsUrl: finalWsUrl,
+            createdAt: new Date().toISOString()
+        };
+
+        console.log(`[Voice] Session init requested for ${sessionId}, wsUrl: ${finalWsUrl}`);
+        
+        res.json(response);
+
+    } catch (error: any) {
+        console.error('[Voice] Init error:', error);
+        res.status(500).json({ 
+            success: false,
+            error: error.message || 'Failed to initialize session' 
+        });
+    }
+});
+
+/**
  * Initialize voice chat session
  * POST /api/voice/init/:recordingId
  */
@@ -128,7 +168,16 @@ router.post('/close/:sessionId', (req: Request, res: Response) => {
  */
 export function setupVoiceWebSocket(wss: WebSocketServer) {
     wss.on('connection', (ws: WebSocket, req) => {
-        const sessionId = new URL(req.url!, `http://${req.headers.host}`).searchParams.get('sessionId');
+        // Support both query param (?sessionId=xxx) and path param (/api/voice/ws/:sessionId)
+        let sessionId = new URL(req.url!, `http://${req.headers.host}`).searchParams.get('sessionId');
+        
+        // If no query param, try to extract from path
+        if (!sessionId && req.url) {
+            const pathMatch = req.url.match(/\/api\/voice\/ws\/([^/?]+)/);
+            if (pathMatch) {
+                sessionId = pathMatch[1];
+            }
+        }
 
         if (!sessionId) {
             ws.close(1008, 'Missing sessionId');
