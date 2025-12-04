@@ -63,25 +63,32 @@ const VoiceAgent: React.FC<VoiceAgentProps> = ({ recordingId }) => {
             
             console.log('[VoiceAgent] Backend URL:', backendUrl, 'Hostname:', window.location.hostname, 'Env:', backendUrlEnv);
 
-            const response = await fetch(`${backendUrl}/api/voice/init/${recordingId}`, {
+            // Generate a unique session ID
+            const sessionId = `voice_${recordingId}_${Date.now()}`;
+            
+            // Use new endpoint with recordingId as query param to create Gemini session
+            const response = await fetch(`${backendUrl}/api/voice/init/${sessionId}?recordingId=${recordingId}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' }
             });
 
-            if (!response.ok) throw new Error('Error al iniciar sesión');
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(`Error al iniciar sesión: ${errorText}`);
+            }
+            
             const data = await response.json();
+            console.log('[VoiceAgent] Session initialized:', data);
+            
+            if (!data.success || !data.wsUrl) {
+                throw new Error('Invalid response from server');
+            }
+            
             sessionIdRef.current = data.sessionId;
 
-            // 2. Connect WebSocket (Direct to Backend)
-            // WebSockets must connect directly as Vercel doesn't proxy them well
+            // 2. Connect WebSocket using the wsUrl from the response
             setStatus('Conectando WebSocket...');
-
-            // Extract host from backendUrl (remove http:// or https://)
-            const wsBackendUrl = backendUrlEnv || (isDev ? 'http://localhost:10000' : 'https://kipu-backend-8006.onrender.com');
-            const wsUrlObj = new URL(wsBackendUrl);
-            const wsProtocol = wsUrlObj.protocol === 'https:' ? 'wss:' : 'ws:';
-            const wsHost = wsUrlObj.host;
-            const wsUrl = `${wsProtocol}//${wsHost}/voice?sessionId=${data.sessionId}`;
+            const wsUrl = data.wsUrl;
             
             console.log('[VoiceAgent] WebSocket URL:', wsUrl);
 

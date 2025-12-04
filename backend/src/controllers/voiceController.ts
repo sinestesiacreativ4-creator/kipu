@@ -12,10 +12,13 @@ const activeSessions = new Map<string, GeminiLiveSession>();
  * Get WebSocket URL for voice session
  * POST /api/voice/init/:sessionId
  * Simple endpoint that returns session info for frontend to connect
+ * 
+ * Optionally accepts ?recordingId=xxx to create Gemini session with context
  */
-router.post('/init/:sessionId', (req: Request, res: Response) => {
+router.post('/init/:sessionId', async (req: Request, res: Response) => {
     try {
         const { sessionId } = req.params;
+        const recordingId = req.query.recordingId as string | undefined;
 
         // Detect backend URL automatically
         const protocol = req.protocol === 'https' ? 'wss' : 'ws';
@@ -27,6 +30,63 @@ router.post('/init/:sessionId', (req: Request, res: Response) => {
         const finalWsUrl = backendUrl 
             ? `${backendUrl.startsWith('https') ? 'wss' : 'ws'}://${new URL(backendUrl).host}/api/voice/ws/${sessionId}`
             : wsUrl;
+
+        // If recordingId is provided, create Gemini session with context
+        if (recordingId) {
+            try {
+                // Get recording analysis
+                const recording = await prisma.recording.findUnique({
+                    where: { id: recordingId }
+                });
+
+                if (recording && recording.analysis) {
+                    const analysis = recording.analysis as any;
+
+                    // Build context for voice agent
+                    const context = `
+REUNIÓN: ${analysis.title || 'Sin título'}
+DURACIÓN: ${recording.duration ? `${Math.round(recording.duration / 60)} minutos` : 'No especificada'}
+
+${analysis.executiveSummary ? `RESUMEN: ${analysis.executiveSummary}` : ''}
+
+${analysis.participants?.length > 0 ? `PARTICIPANTES: ${analysis.participants.join(', ')}` : ''}
+
+${analysis.keyTopics?.length > 0 ? `TEMAS: ${analysis.keyTopics.join(', ')}` : ''}
+
+${analysis.summary?.length > 0 ? `PUNTOS CLAVE:\n${analysis.summary.map((s: string, i: number) => `${i + 1}. ${s}`).join('\n')}` : ''}
+
+${analysis.decisions?.length > 0 ? `DECISIONES:\n${analysis.decisions.map((d: string, i: number) => `${i + 1}. ${d}`).join('\n')}` : ''}
+
+${analysis.actionItems?.length > 0 ? `TAREAS:\n${analysis.actionItems.map((a: string, i: number) => `${i + 1}. ${a}`).join('\n')}` : ''}
+                    `.trim();
+
+                    // Create Gemini session
+                    const session = new GeminiLiveSession(sessionId, context);
+                    console.log(`[Voice] Creating Gemini session for ${sessionId} with recording ${recordingId}...`);
+                    
+                    try {
+                        await session.connect();
+                        console.log(`[Voice] ✅ Gemini session created for ${sessionId}`);
+                        activeSessions.set(sessionId, session);
+                        
+                        // Auto-cleanup after 30 minutes
+                        setTimeout(() => {
+                            if (activeSessions.has(sessionId)) {
+                                activeSessions.get(sessionId)?.close();
+                                activeSessions.delete(sessionId);
+                                console.log(`[Voice] Session ${sessionId} auto-closed after timeout`);
+                            }
+                        }, 30 * 60 * 1000);
+                    } catch (geminiError: any) {
+                        console.error(`[Voice] Failed to create Gemini session:`, geminiError);
+                        // Continue anyway - frontend can still connect, but Gemini won't respond
+                    }
+                }
+            } catch (dbError: any) {
+                console.error(`[Voice] Error fetching recording:`, dbError);
+                // Continue anyway - return wsUrl even if recording not found
+            }
+        }
 
         const response = {
             success: true,
