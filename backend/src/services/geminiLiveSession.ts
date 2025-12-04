@@ -28,11 +28,12 @@ export class GeminiLiveSession {
         }
         
         // Try models in order of preference for Live API support
-        // Based on available models: gemini-2.0-flash-live, gemini-2.5-flash-live
+        // Note: gemini-2.0-flash-live may not support bidiGenerateContent in v1alpha
+        // Based on available models: gemini-2.5-flash-live is confirmed to work
         const modelsToTry = [
-            'gemini-2.0-flash-live',  // First choice - newer model
-            'gemini-2.5-flash-live',  // Second choice - latest model
-            'gemini-1.5-flash-live'   // Fallback - older but stable
+            'gemini-2.5-flash-live',  // First choice - confirmed to support Live API
+            'gemini-1.5-flash-live',  // Second choice - stable Live API model
+            'gemini-2.0-flash-live'   // Last resort - may not work with v1alpha
         ];
         
         let lastError: any = null;
@@ -154,6 +155,12 @@ export class GeminiLiveSession {
                     console.error(`[GeminiLive] ⚠️ WebSocket closed AFTER connection was established!`);
                     console.error(`[GeminiLive] This usually means Gemini rejected the setup or there was an error.`);
                     console.error(`[GeminiLive] Check the setup message format and model availability.`);
+                    
+                    // If setup was not complete and we got a 1008 error, this model doesn't support Live API
+                    if (code === 1008 && !this.setupComplete) {
+                        console.error(`[GeminiLive] Model ${model} does not support bidiGenerateContent (Live API)`);
+                        console.error(`[GeminiLive] Will try next model in fallback list...`);
+                    }
                 }
                 
                 // Reset state
