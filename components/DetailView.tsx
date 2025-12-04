@@ -514,7 +514,7 @@ const DetailView: React.FC<DetailViewProps> = ({ recording, onBack, onReanalyze 
                 ))}
               </div>
             </div>
-          </div>
+          </aside>
         </div>
       </div>
 
