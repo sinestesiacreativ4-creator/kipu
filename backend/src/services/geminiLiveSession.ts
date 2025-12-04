@@ -39,17 +39,20 @@ export class GeminiLiveSession {
         
         let lastError: any = null;
         
-        for (const model of modelsToTry) {
+        console.log(`[GeminiLive] 🔄 Will try ${modelsToTry.length} models in order: ${modelsToTry.join(', ')}`);
+        
+        for (let i = 0; i < modelsToTry.length; i++) {
+            const model = modelsToTry[i];
             this.currentModel = model;
-            console.log(`[GeminiLive] 🔌 Attempting to connect to Gemini Live API with model: ${model}`);
+            console.log(`[GeminiLive] 🔌 [${i + 1}/${modelsToTry.length}] Attempting to connect to Gemini Live API with model: ${model}`);
             
             try {
                 await this._attemptConnect(apiKey, model);
-                console.log(`[GeminiLive] ✅ Successfully connected with model: ${model}`);
+                console.log(`[GeminiLive] ✅ Successfully connected with model: ${model} (attempt ${i + 1}/${modelsToTry.length})`);
                 return; // Connection successful
             } catch (error: any) {
                 lastError = error;
-                console.error(`[GeminiLive] ❌ Failed to connect with model ${model}:`, error.message);
+                console.error(`[GeminiLive] ❌ [${i + 1}/${modelsToTry.length}] Failed to connect with model ${model}:`, error.message);
                 
                 // Close WebSocket if it exists
                 if (this.ws) {
@@ -59,7 +62,13 @@ export class GeminiLiveSession {
                 
                 // If it's a quota error, no need to try other models
                 if (error.message?.includes('quota') || error.message?.includes('1011')) {
+                    console.error(`[GeminiLive] ❌ Quota exceeded - stopping model attempts`);
                     throw error;
+                }
+                
+                // If this is not the last model, try next one
+                if (i < modelsToTry.length - 1) {
+                    console.log(`[GeminiLive] ⏭️ Trying next model in fallback list...`);
                 }
             }
         }
