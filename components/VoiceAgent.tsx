@@ -50,13 +50,8 @@ const VoiceAgent: React.FC<VoiceAgentProps> = ({ recordingId }) => {
             if (ctx.state === 'suspended') await ctx.resume();
 
             // 1. Initialize Session via API
-            // Determine Backend URL
-            const isDev = window.location.hostname === 'localhost';
-            const backendUrl = isDev
-                ? 'http://localhost:10000'
-                : 'https://kipu-backend-8006.onrender.com';
-
-            const response = await fetch(`${backendUrl}/api/voice/init/${recordingId}`, {
+            // Use relative path to leverage Vercel proxy (avoids CORS)
+            const response = await fetch(`/api/voice/init/${recordingId}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' }
             });
@@ -65,8 +60,11 @@ const VoiceAgent: React.FC<VoiceAgentProps> = ({ recordingId }) => {
             const data = await response.json();
             sessionIdRef.current = data.sessionId;
 
-            // 2. Connect WebSocket
+            // 2. Connect WebSocket (Direct to Backend)
+            // WebSockets must connect directly as Vercel doesn't proxy them well
             setStatus('Conectando WebSocket...');
+
+            const isDev = window.location.hostname === 'localhost';
             const wsProtocol = isDev ? 'ws:' : 'wss:';
             const wsHost = isDev ? 'localhost:10000' : 'kipu-backend-8006.onrender.com';
             const wsUrl = `${wsProtocol}//${wsHost}/voice?sessionId=${data.sessionId}`;
@@ -359,8 +357,8 @@ const VoiceAgent: React.FC<VoiceAgentProps> = ({ recordingId }) => {
                         className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
                     >
                         <div className={`max-w-[80%] p-3 rounded-2xl text-sm ${msg.role === 'user'
-                                ? 'bg-primary text-white rounded-tr-none'
-                                : 'bg-white dark:bg-stone-800 text-stone-800 dark:text-stone-200 border border-stone-200 dark:border-stone-700 rounded-tl-none'
+                            ? 'bg-primary text-white rounded-tr-none'
+                            : 'bg-white dark:bg-stone-800 text-stone-800 dark:text-stone-200 border border-stone-200 dark:border-stone-700 rounded-tl-none'
                             }`}>
                             {msg.text}
                         </div>
