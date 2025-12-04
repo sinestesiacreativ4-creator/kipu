@@ -50,8 +50,13 @@ const VoiceAgent: React.FC<VoiceAgentProps> = ({ recordingId }) => {
             if (ctx.state === 'suspended') await ctx.resume();
 
             // 1. Initialize Session via API
-            // Use relative path to leverage Vercel proxy (avoids CORS)
-            const response = await fetch(`/api/voice/init/${recordingId}`, {
+            // Direct connection to Render Backend (CORS must be enabled on backend)
+            const isDev = window.location.hostname === 'localhost';
+            const backendUrl = isDev
+                ? 'http://localhost:10000'
+                : 'https://kipu-backend-8006.onrender.com';
+
+            const response = await fetch(`${backendUrl}/api/voice/init/${recordingId}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' }
             });
