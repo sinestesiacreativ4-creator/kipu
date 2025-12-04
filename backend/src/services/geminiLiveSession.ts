@@ -28,13 +28,12 @@ export class GeminiLiveSession {
         }
         
         // Try models in order of preference for Live API support
-        // Note: Some "live" models may not support bidiGenerateContent in v1alpha
-        // gemini-2.5-flash (without -live) may also support Live API
+        // IMPORTANT: Only models with "-live" suffix support bidiGenerateContent (Live API)
+        // Standard models (without -live) do NOT support Live API
         const modelsToTry = [
-            'gemini-2.5-flash',        // First choice - standard model that may support Live API
-            'gemini-2.5-flash-live',   // Second choice - Live-specific model
-            'gemini-1.5-flash-live',   // Third choice - stable Live API model
-            'gemini-2.0-flash-live'    // Last resort - may not work with v1alpha
+            'gemini-2.5-flash-live',   // First choice - Latest Live API model
+            'gemini-1.5-flash-live',   // Second choice - Stable Live API model (confirmed working)
+            'gemini-2.0-flash-live'    // Third choice - May not work with v1alpha
         ];
         
         let lastError: any = null;

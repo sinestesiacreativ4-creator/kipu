@@ -115,10 +115,21 @@ const VoiceAgent: React.FC<VoiceAgentProps> = ({ recordingId }) => {
                 handleServerMessage(message);
             };
 
-            ws.onclose = () => {
-                console.log('[VoiceAgent] Disconnected');
+            ws.onclose = (event) => {
+                console.log('[VoiceAgent] Disconnected', event.code, event.reason);
                 setIsConnected(false);
-                setStatus('Desconectado');
+                
+                // Provide more specific error messages
+                if (event.code === 1008) {
+                    setStatus('Modelo no disponible - Usa Chat AI');
+                    addMessage('assistant', 'Lo siento, el modelo de voz no está disponible en este momento. Por favor, usa la pestaña "Chat AI" para hacer preguntas sobre la reunión.');
+                } else if (event.code === 1011) {
+                    setStatus('Cuota excedida');
+                    addMessage('assistant', 'Se ha excedido la cuota de la API. Por favor, verifica tu plan en https://ai.google.dev/pricing');
+                } else {
+                    setStatus('Desconectado');
+                }
+                
                 stopRecording();
             };
 
