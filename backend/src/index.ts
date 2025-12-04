@@ -45,7 +45,20 @@ TempManager.startAutoCleanup();
 // 2. MIDDLEWARE (ORDER MATTERS!)
 // ==========================================
 
-// A. CORS - Strict Configuration
+// FORCE CORS HEADERS MANUALLY (Safety Net)
+app.use((req, res, next) => {
+    res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-request-id, x-chunk-index, x-user-id, x-organization-id');
+    res.header('Access-Control-Allow-Credentials', 'true');
+
+    if (req.method === 'OPTIONS') {
+        return res.sendStatus(200);
+    }
+    next();
+});
+
+// A. CORS - Library Configuration (Still kept for standard handling)
 const allowedOrigins = [
     'https://kipu-alpha.vercel.app',
     'http://localhost:5173',
