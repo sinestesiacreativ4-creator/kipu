@@ -14,7 +14,7 @@ model Organization {
   id        String   @id @default(uuid())
   name      String
   slug      String   @unique
-  code      String   @unique // Código único de organización (generado al pagar)
+  code      String?  @unique // Código único de organización (generado al pagar, opcional hasta que se pague)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
