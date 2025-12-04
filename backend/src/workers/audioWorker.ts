@@ -10,6 +10,7 @@ import ffmpeg from 'fluent-ffmpeg';
 import ffmpegPath from 'ffmpeg-static';
 import { promisify } from 'util';
 import { pipeline } from 'stream';
+import axios from 'axios';
 
 dotenv.config();
 
@@ -468,9 +469,46 @@ const worker = new Worker('audio-processing-queue', async (job: Job) => {
                 const fileBuffer = await connection.getBuffer(fileKey);
                 if (!fileBuffer) throw new Error('File not found in Redis');
                 fs.writeFileSync(sourceFilePath, fileBuffer);
+            } else if (fileUri) {
+                // === GEMINI FILE API PATH ===
+                // Download file from Gemini File API
+                console.log(`[Worker] Downloading from Gemini File API: ${fileUri}`);
+                
+                try {
+                    const apiKey = process.env.GEMINI_API_KEY;
+                    if (!apiKey) {
+                        throw new Error('GEMINI_API_KEY is not configured');
+                    }
+                    
+                    // Extract file ID from URI (format: https://generativelanguage.googleapis.com/v1beta/files/{fileId})
+                    const fileIdMatch = fileUri.match(/files\/([^/?]+)/);
+                    if (!fileIdMatch) {
+                        throw new Error(`Invalid Gemini file URI format: ${fileUri}`);
+                    }
+                    const fileId = fileIdMatch[1];
+                    
+                    // Download file using Gemini File API
+                    const downloadUrl = `https://generativelanguage.googleapis.com/v1beta/files/${fileId}?alt=media`;
+                    console.log(`[Worker] Downloading from: ${downloadUrl.replace(apiKey, '***')}`);
+                    
+                    const response = await axios.get(downloadUrl, {
+                        headers: {
+                            'x-goog-api-key': apiKey
+                        },
+                        responseType: 'arraybuffer',
+                        timeout: 300000 // 5 minutes timeout for large files
+                    });
+                    
+                    // Write file to disk
+                    const fileBuffer = Buffer.from(response.data);
+                    fs.writeFileSync(sourceFilePath, fileBuffer);
+                    console.log(`[Worker] Downloaded ${fileBuffer.length} bytes from Gemini File API`);
+                } catch (downloadError: any) {
+                    console.error(`[Worker] Error downloading from Gemini File API:`, downloadError);
+                    throw new Error(`Failed to download file from Gemini: ${downloadError.message}`);
+                }
             } else {
-                console.log(`[Worker] Downloading from Gemini URI not supported for chunking yet.`);
-                throw new Error("Chunking requires file access. Gemini File API storage does not support direct download for chunking.");
+                throw new Error("No file source available. Need filePath, fileKey (Redis), or fileUri (Gemini)");
             }
 
             // 2. Split Audio
