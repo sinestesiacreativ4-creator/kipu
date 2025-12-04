@@ -12,6 +12,8 @@ export class GeminiLiveSession {
     private analysisContext: string;
     private messageCallback: ((data: any) => void) | null = null;
     private messageQueue: any[] = []; // Queue messages until callback is set
+    private setupComplete: boolean = false; // Track if setup is complete
+    private audioQueue: Buffer[] = []; // Queue audio until setup is complete
 
     constructor(sessionId: string, analysisContext: string) {
         this.sessionId = sessionId;
@@ -35,7 +37,8 @@ export class GeminiLiveSession {
             this.ws = new WebSocket(wsUrl);
 
             this.ws.on('open', () => {
-                console.log(`[GeminiLive] Session ${this.sessionId} connected`);
+                console.log(`[GeminiLive] ✅ WebSocket OPEN for session ${this.sessionId}`);
+                console.log(`[GeminiLive] WebSocket state: ${this.ws?.readyState} (should be 1=OPEN)`);
 
                 // Send initial setup message
                 this.sendSetup();
@@ -52,11 +55,16 @@ export class GeminiLiveSession {
                 const reasonStr = reason ? reason.toString() : 'No reason provided';
                 console.log(`[GeminiLive] Session ${this.sessionId} closed (code: ${code}, reason: ${reasonStr})`);
                 
+                // Reset state
+                this.setupComplete = false;
+                this.audioQueue = [];
+                
                 // Log common error codes
                 if (code === 1006) {
                     console.error(`[GeminiLive] Abnormal closure - connection lost. Possible causes: model not available, API key invalid, or network issue.`);
                 } else if (code === 1008) {
                     console.error(`[GeminiLive] Policy violation - check API key permissions and model availability.`);
+                    console.error(`[GeminiLive] The model 'gemini-2.5-flash-live' may not be available for your account.`);
                 } else if (code === 1011) {
                     console.error(`[GeminiLive] ❌ QUOTA EXCEEDED - You have exceeded your Gemini API quota.`);
                     console.error(`[GeminiLive] Please check your billing and plan at: https://ai.google.dev/pricing`);
@@ -74,7 +82,17 @@ export class GeminiLiveSession {
                     
                     // Log specific message types
                     if (message.setupComplete) {
-                        console.log(`[GeminiLive] Setup complete for session ${this.sessionId}`);
+                        console.log(`[GeminiLive] ✅ Setup complete for session ${this.sessionId}`);
+                        this.setupComplete = true;
+                        
+                        // Send any queued audio
+                        console.log(`[GeminiLive] Processing ${this.audioQueue.length} queued audio chunks`);
+                        while (this.audioQueue.length > 0) {
+                            const queuedAudio = this.audioQueue.shift();
+                            if (queuedAudio && this.ws && this.ws.readyState === WebSocket.OPEN) {
+                                this.sendAudioInternal(queuedAudio);
+                            }
+                        }
                     }
                     if (message.serverContent?.modelTurn) {
                         console.log(`[GeminiLive] Model turn received with ${message.serverContent.modelTurn.parts?.length || 0} parts`);
@@ -133,14 +151,46 @@ INSTRUCCIONES:
         };
 
         const setupJson = JSON.stringify(setupMessage);
-        console.log(`[GeminiLive] Sending setup for session ${this.sessionId}:`, setupJson);
-        this.ws.send(setupJson);
-        console.log(`[GeminiLive] Setup sent for session ${this.sessionId}`);
+        console.log(`[GeminiLive] 📤 Sending setup for session ${this.sessionId}`);
+        console.log(`[GeminiLive] WebSocket state before send: ${this.ws.readyState} (1=OPEN)`);
+        console.log(`[GeminiLive] Setup message:`, JSON.stringify(setupMessage, null, 2));
+        
+        try {
+            this.ws.send(setupJson);
+            console.log(`[GeminiLive] ✅ Setup message sent successfully`);
+        } catch (error: any) {
+            console.error(`[GeminiLive] ❌ Error sending setup:`, error);
+            throw error;
+        }
     }
 
     sendAudio(audioData: Buffer): void {
+        // Check WebSocket state
+        if (!this.ws) {
+            console.warn(`[GeminiLive] WebSocket is null`);
+            return;
+        }
+
+        const wsState = this.ws.readyState;
+        if (wsState !== WebSocket.OPEN) {
+            console.warn(`[GeminiLive] WebSocket not ready (state: ${wsState}). States: 0=CONNECTING, 1=OPEN, 2=CLOSING, 3=CLOSED`);
+            return;
+        }
+
+        // If setup is not complete, queue the audio
+        if (!this.setupComplete) {
+            console.log(`[GeminiLive] Setup not complete yet, queueing audio chunk (${audioData.length} bytes)`);
+            this.audioQueue.push(audioData);
+            return;
+        }
+
+        // Send audio immediately
+        this.sendAudioInternal(audioData);
+    }
+
+    private sendAudioInternal(audioData: Buffer): void {
         if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-            console.warn(`[GeminiLive] WebSocket not ready`);
+            console.warn(`[GeminiLive] Cannot send audio - WebSocket not open`);
             return;
         }
 
@@ -153,7 +203,7 @@ INSTRUCCIONES:
             }
         };
 
-        console.log(`[GeminiLive] Sending audio chunk (${audioData.length} bytes)`);
+        console.log(`[GeminiLive] ✅ Sending audio chunk (${audioData.length} bytes) - Setup complete`);
         this.ws.send(JSON.stringify(message));
     }
 
