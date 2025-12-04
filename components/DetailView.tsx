@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { ArrowLeft, List, Download, Folder, CheckCircle2, RefreshCw, MessageSquare, FileText, Mic } from 'lucide-react';
 import MeetingChat from './MeetingChat';
-import VoiceChat from './VoiceChat';
+import VoiceAgent from './VoiceAgent';
 import { Recording, RecordingStatus, ExportOptions } from '../types';
 import { formatTime } from '../utils';
 import { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType } from 'docx';
@@ -415,7 +415,7 @@ const DetailView: React.FC<DetailViewProps> = ({ recording, onBack, onReanalyze 
 
           {/* Voice Tab Content */}
           <div className={`${activeTab === 'voice' ? 'block' : 'hidden'} print:hidden animate-fade-in`}>
-            <VoiceChat recordingId={recording.id} />
+            <VoiceAgent recordingId={recording.id} />
           </div>
 
         </div>
