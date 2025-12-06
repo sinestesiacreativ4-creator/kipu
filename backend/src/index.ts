@@ -29,7 +29,7 @@ const PORT = process.env.PORT || 10000;
 // ==========================================
 // 1. SYSTEM INITIALIZATION
 // ==========================================
-console.log('[System] Starting Kipu Backend v2.2 (CORS Fixed + Voice Agent Ready) - ' + new Date().toISOString());
+console.log('[System] Starting Kipu Backend v3.0 (Profile CRUD Added) - ' + new Date().toISOString());
 
 // Initialize Temp Folders
 try {
