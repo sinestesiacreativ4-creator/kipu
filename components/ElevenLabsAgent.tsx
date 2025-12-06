@@ -22,7 +22,7 @@ interface ElevenLabsMessage {
     user_transcript?: string;
 }
 
-const ELEVENLABS_AGENT_ID = import.meta.env.VITE_ELEVENLABS_AGENT_ID || 'agent_56D1kbfkdlkghalj9Ihg2q1gmtY1';
+const ELEVENLABS_AGENT_ID = import.meta.env.VITE_ELEVENLABS_AGENT_ID || 'agent_5601kbtkdkghejj91hg2qr1gmty1';
 
 const ElevenLabsAgent: React.FC<ElevenLabsAgentProps> = ({ recordingId, meetingContext }) => {
     // State
@@ -310,12 +310,12 @@ const ElevenLabsAgent: React.FC<ElevenLabsAgentProps> = ({ recordingId, meetingC
                 try {
                     const backendUrlEnv = import.meta.env.VITE_API_URL || import.meta.env.VITE_BACKEND_URL;
                     const isDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-                    const backendUrl = backendUrlEnv 
+                    const backendUrl = backendUrlEnv
                         ? backendUrlEnv
                         : (isDev
                             ? 'http://localhost:10000'
                             : 'https://kipu-backend-8006.onrender.com');
-                    
+
                     const response = await fetch(`${backendUrl}/api/recordings/${recordingId}/context`);
                     if (response.ok) {
                         const data = await response.json();
@@ -455,8 +455,8 @@ const ElevenLabsAgent: React.FC<ElevenLabsAgentProps> = ({ recordingId, meetingC
                         <button
                             onClick={toggleMute}
                             className={`p-2 rounded-lg transition-colors ${isMuted
-                                    ? 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400'
-                                    : 'bg-stone-100 text-stone-600 dark:bg-stone-800 dark:text-stone-400'
+                                ? 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400'
+                                : 'bg-stone-100 text-stone-600 dark:bg-stone-800 dark:text-stone-400'
                                 }`}
                         >
                             {isMuted ? <VolumeX size={20} /> : <Volume2 size={20} />}
@@ -479,10 +479,10 @@ const ElevenLabsAgent: React.FC<ElevenLabsAgentProps> = ({ recordingId, meetingC
                 {/* Audio Visualizer */}
                 <div className="relative">
                     <div className={`w-32 h-32 rounded-full flex items-center justify-center transition-all duration-300 ${isSpeaking
-                            ? 'bg-gradient-to-br from-violet-500 to-purple-600 shadow-lg shadow-violet-500/30'
-                            : isListening
-                                ? 'bg-gradient-to-br from-primary to-amber-500 shadow-lg shadow-primary/30'
-                                : 'bg-stone-200 dark:bg-stone-700'
+                        ? 'bg-gradient-to-br from-violet-500 to-purple-600 shadow-lg shadow-violet-500/30'
+                        : isListening
+                            ? 'bg-gradient-to-br from-primary to-amber-500 shadow-lg shadow-primary/30'
+                            : 'bg-stone-200 dark:bg-stone-700'
                         }`}>
                         {/* Animated rings */}
                         {(isListening || isSpeaking) && (
@@ -564,8 +564,8 @@ const ElevenLabsAgent: React.FC<ElevenLabsAgentProps> = ({ recordingId, meetingC
                             className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-fade-in`}
                         >
                             <div className={`max-w-[85%] p-4 rounded-2xl text-sm ${msg.role === 'user'
-                                    ? 'bg-primary text-white rounded-tr-none'
-                                    : 'bg-white dark:bg-stone-800 text-stone-800 dark:text-stone-200 border border-stone-200 dark:border-stone-700 rounded-tl-none shadow-sm'
+                                ? 'bg-primary text-white rounded-tr-none'
+                                : 'bg-white dark:bg-stone-800 text-stone-800 dark:text-stone-200 border border-stone-200 dark:border-stone-700 rounded-tl-none shadow-sm'
                                 }`}>
                                 <p className="leading-relaxed">{msg.text}</p>
                                 <p className={`text-[10px] mt-2 ${msg.role === 'user' ? 'text-white/60' : 'text-stone-400'
