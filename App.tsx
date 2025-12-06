@@ -824,6 +824,7 @@ const AppContent = () => {
         onCreate={handleCreateProfile}
         onDelete={handleDeleteProfile}
         organizationName={currentOrg.name}
+        organizationId={currentOrg.id}
       />
     );
   }

@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import { User, Plus, ArrowRight, Trash2, UserPlus, Sparkles, X, Check } from 'lucide-react';
 import { UserProfile } from '../types';
 import { generateId } from '../utils';
-import { supabaseDb as db } from '../services/supabaseDb';
 
 interface ProfileSelectorProps {
   profiles: UserProfile[];
@@ -10,6 +9,7 @@ interface ProfileSelectorProps {
   onCreate: (profile: UserProfile) => void;
   onDelete: (profileId: string) => void;
   organizationName?: string;
+  organizationId: string;
 }
 
 const AVATAR_COLORS = [
@@ -39,7 +39,8 @@ const ProfileSelector: React.FC<ProfileSelectorProps> = ({
   onSelect,
   onCreate,
   onDelete,
-  organizationName
+  organizationName,
+  organizationId
 }) => {
   const [isCreating, setIsCreating] = useState(false);
   const [newName, setNewName] = useState('');
@@ -56,7 +57,7 @@ const ProfileSelector: React.FC<ProfileSelectorProps> = ({
       name: newName.trim(),
       role: newRole.trim() || 'Asesor',
       avatarColor: selectedColor,
-      organizationId: db.getDemoOrgId()
+      organizationId: organizationId
     };
 
     onCreate(newProfile);
@@ -219,8 +220,8 @@ const ProfileSelector: React.FC<ProfileSelectorProps> = ({
                           type="button"
                           onClick={() => setSelectedColor(color)}
                           className={`w-10 h-10 rounded-full ${color} transition-all duration-200 ${selectedColor === color
-                              ? 'ring-4 ring-primary ring-offset-2 dark:ring-offset-stone-900 scale-110'
-                              : 'hover:scale-110'
+                            ? 'ring-4 ring-primary ring-offset-2 dark:ring-offset-stone-900 scale-110'
+                            : 'hover:scale-110'
                             }`}
                         />
                       ))}
@@ -262,8 +263,8 @@ const ProfileSelector: React.FC<ProfileSelectorProps> = ({
                           type="button"
                           onClick={() => setNewRole(role)}
                           className={`px-3 py-1.5 text-xs font-medium rounded-full transition-all duration-200 ${newRole === role
-                              ? 'bg-primary text-white'
-                              : 'bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-400 hover:bg-primary/10 hover:text-primary'
+                            ? 'bg-primary text-white'
+                            : 'bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-400 hover:bg-primary/10 hover:text-primary'
                             }`}
                         >
                           {role}
