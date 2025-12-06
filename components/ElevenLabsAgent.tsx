@@ -22,7 +22,10 @@ interface ElevenLabsMessage {
     user_transcript?: string;
 }
 
+// Use correct agent ID - the one from ElevenLabs dashboard
 const ELEVENLABS_AGENT_ID = import.meta.env.VITE_ELEVENLABS_AGENT_ID || 'agent_5601kbtkdkghejj91hg2qr1gmty1';
+
+console.log('[ElevenLabs] Agent ID:', ELEVENLABS_AGENT_ID);
 
 const ElevenLabsAgent: React.FC<ElevenLabsAgentProps> = ({ recordingId, meetingContext }) => {
     // State
@@ -304,14 +307,16 @@ const ElevenLabsAgent: React.FC<ElevenLabsAgentProps> = ({ recordingId, meetingC
             setStatus('Obteniendo contexto de la reunión...');
             setError(null);
 
-            // Get backend URL
-            const backendUrlEnv = import.meta.env.VITE_API_URL || import.meta.env.VITE_BACKEND_URL;
+            // Get backend URL - FORCE localhost in development
             const isDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-            const backendUrl = backendUrlEnv
-                ? backendUrlEnv
-                : (isDev
-                    ? 'http://localhost:10000'
-                    : 'https://kipu-ruki.onrender.com');
+            const backendUrlEnv = import.meta.env.VITE_API_URL || import.meta.env.VITE_BACKEND_URL;
+            
+            // Always use localhost when in development, ignore env vars
+            const backendUrl = isDev
+                ? 'http://localhost:10000'
+                : (backendUrlEnv || 'https://kipu-ruki.onrender.com');
+            
+            console.log('[ElevenLabs] Using backend URL:', backendUrl, 'isDev:', isDev);
 
             // Get full context from backend
             let fullContext = meetingContext || '';
@@ -352,16 +357,34 @@ const ElevenLabsAgent: React.FC<ElevenLabsAgentProps> = ({ recordingId, meetingC
                         throw new Error('No signed URL in response');
                     }
                 } else {
-                    const errorData = await signedUrlResponse.json();
+                    const errorData = await signedUrlResponse.json().catch(() => ({ error: 'Unknown error' }));
                     console.warn('[ElevenLabs] Could not get signed URL:', errorData);
+
+                    // Check if it's a 404 (agent not found)
+                    if (signedUrlResponse.status === 404) {
+                        throw new Error('AGENT_NOT_FOUND');
+                    }
 
                     // Fallback to direct connection (only works for public agents)
                     wsUrl = `wss://api.elevenlabs.io/v1/convai/conversation?agent_id=${ELEVENLABS_AGENT_ID}`;
                     console.log('[ElevenLabs] Falling back to direct connection (public agent mode)');
                 }
-            } catch (error) {
-                console.warn('[ElevenLabs] Signed URL error, falling back to direct:', error);
-                wsUrl = `wss://api.elevenlabs.io/v1/convai/conversation?agent_id=${ELEVENLABS_AGENT_ID}`;
+            } catch (error: any) {
+                // If agent not found, show error immediately
+                if (error.message === 'AGENT_NOT_FOUND' || error.message?.includes('404')) {
+                    setError('El agente no existe. Verifica el ID del agente en ElevenLabs.');
+                    setStatus('Agente no encontrado');
+                    return;
+                }
+                
+                // Network errors (Failed to fetch, backend unavailable, etc.) - use direct connection
+                if (error.name === 'TypeError' || error.message?.includes('fetch') || error.message?.includes('Failed to fetch')) {
+                    console.warn('[ElevenLabs] Backend not available or network error, using direct connection:', error.message);
+                    wsUrl = `wss://api.elevenlabs.io/v1/convai/conversation?agent_id=${ELEVENLABS_AGENT_ID}`;
+                } else {
+                    console.warn('[ElevenLabs] Signed URL error, falling back to direct:', error);
+                    wsUrl = `wss://api.elevenlabs.io/v1/convai/conversation?agent_id=${ELEVENLABS_AGENT_ID}`;
+                }
             }
 
             setStatus('Conectando a ElevenLabs...');
@@ -424,13 +447,21 @@ const ElevenLabsAgent: React.FC<ElevenLabsAgentProps> = ({ recordingId, meetingC
 
             ws.onerror = (error) => {
                 console.error('[ElevenLabs] WebSocket error:', error);
-                setError('Error de conexión WebSocket');
+                setError('Error de conexión WebSocket. Verifica el ID del agente en ElevenLabs.');
+                setStatus('Error de conexión');
             };
 
         } catch (error: any) {
             console.error('[ElevenLabs] Connection failed:', error);
-            setError('Error al conectar: ' + error.message);
-            setStatus('Error');
+            
+            // Check if it's an agent not found error
+            if (error.message === 'AGENT_NOT_FOUND' || error.message?.includes('404') || error.message?.includes('not found')) {
+                setError('El agente no existe. Verifica el ID del agente en ElevenLabs.');
+                setStatus('Agente no encontrado');
+            } else {
+                setError('Error al conectar: ' + error.message);
+                setStatus('Error');
+            }
         }
     }, [initAudioContext, meetingContext, recordingId, handleMessage, startMicrophone, stopMicrophone]);
 

@@ -39,6 +39,11 @@ services:
       # Backend URL for webhooks
       - key: BACKEND_URL
         sync: false
+      # ElevenLabs Configuration
+      - key: ELEVENLABS_API_KEY
+        sync: false
+      - key: ELEVENLABS_AGENT_ID
+        value: "agent_5601kbtkdkghejj91hg2qr1gmty1"
     # Render soporta WebSockets automáticamente en servicios web
 
   # 3. Frontend Static Site
@@ -54,6 +59,8 @@ services:
           type: web
           name: kipu-backend
           property: host
+      - key: VITE_ELEVENLABS_AGENT_ID
+        value: "agent_5601kbtkdkghejj91hg2qr1gmty1"
 
 databases:
   - name: kipu-db
