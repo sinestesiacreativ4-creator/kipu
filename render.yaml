@@ -6,6 +6,7 @@ services:
     plan: free
     rootDir: backend
     buildCommand: npm install && npm run build
+    # Using --force-reset to handle existing data migration
     startCommand: npx prisma generate && npx prisma db push --force-reset && node dist/index.js
     envVars:
       - key: NODE_ENV

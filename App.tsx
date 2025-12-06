@@ -1,6 +1,6 @@
-// Version: 2.0.1 - Fixed upload functionality
+// Version: 3.0.0 - Production Ready with Premium UI
 import React, { useState, useEffect } from 'react';
-import { Mic, Search, Clock, FileAudio, LogOut, Trash2, Loader2, Building2, Upload, Folder } from 'lucide-react';
+import { Mic, Search, Clock, FileAudio, LogOut, Trash2, Loader2, Building2, Upload, Folder, Check, X, AlertCircle, CheckCircle2, Sparkles } from 'lucide-react';
 import StreamingRecorder from './components/StreamingRecorder';
 import DetailView from './components/DetailView';
 import ProfileSelector from './components/ProfileSelector';
@@ -16,7 +16,7 @@ import { api } from './services/api';
 import { uploadService } from './services/uploadService';
 import { useWakeLock } from './hooks/useWakeLock';
 
-// --- Components defined inline for simplicity of the file structure ---
+// --- Premium Dashboard Component ---
 
 const Dashboard = ({
   recordings,
@@ -36,6 +36,8 @@ const Dashboard = ({
   isLoading?: boolean
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -43,29 +45,60 @@ const Dashboard = ({
     if (file) {
       onFileUpload(file);
     }
-    // Reset input
     if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const handleDelete = async (id: string) => {
+    setDeletingId(id);
+    try {
+      await onDeleteRecording(id);
+    } finally {
+      setDeletingId(null);
+      setDeleteConfirmId(null);
+    }
   };
 
   const filteredRecordings = recordings.filter(r => {
     const term = searchTerm.toLowerCase();
-    return r.analysis?.title.toLowerCase().includes(term) ||
-      r.analysis?.category.toLowerCase().includes(term) ||
-      r.analysis?.tags.some(t => t.toLowerCase().includes(term));
+    return r.analysis?.title?.toLowerCase().includes(term) ||
+      r.analysis?.category?.toLowerCase().includes(term) ||
+      r.analysis?.tags?.some(t => t.toLowerCase().includes(term));
   });
 
+  const getStatusBadge = (status: RecordingStatus) => {
+    switch (status) {
+      case RecordingStatus.PROCESSING:
+        return { icon: Clock, class: 'status-processing', label: 'Procesando' };
+      case RecordingStatus.COMPLETED:
+        return { icon: CheckCircle2, class: 'status-completed', label: 'Completado' };
+      case RecordingStatus.ERROR:
+        return { icon: AlertCircle, class: 'status-error', label: 'Error' };
+      default:
+        return { icon: FileAudio, class: 'bg-stone-100 dark:bg-stone-800', label: 'Grabación' };
+    }
+  };
+
   return (
-    <div className="max-w-6xl mx-auto p-4 sm:p-6 md:p-10 animate-fade-in">
+    <div className="max-w-6xl mx-auto p-4 sm:p-6 md:p-10 animate-fade-in pb-32">
+      {/* Decorative Background */}
+      <div className="fixed inset-0 overflow-hidden pointer-events-none -z-10">
+        <div className="absolute top-0 right-0 w-96 h-96 bg-primary/5 rounded-full blur-3xl transform translate-x-1/2 -translate-y-1/2" />
+        <div className="absolute bottom-0 left-0 w-96 h-96 bg-gold/5 rounded-full blur-3xl transform -translate-x-1/2 translate-y-1/2" />
+      </div>
+
       {/* Header */}
-      <header 
-        className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 md:gap-6 mb-8 md:mb-12 sticky top-0 z-30 py-4 md:py-6 -mx-4 sm:-mx-6 px-4 sm:px-6 md:-mx-10 md:px-10 glass rounded-b-2xl md:rounded-b-3xl transition-all duration-300"
+      <header
+        className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 md:gap-6 mb-8 md:mb-12 sticky top-16 z-20 py-4 md:py-6 -mx-4 sm:-mx-6 px-4 sm:px-6 md:-mx-10 md:px-10 glass rounded-b-2xl md:rounded-b-3xl"
         role="banner"
       >
         <div className="flex-1 min-w-0">
-          <h1 className="text-2xl sm:text-3xl md:text-4xl font-display font-bold text-stone-900 dark:text-white tracking-tight">
-            Hola, <span className="text-gradient-gold">{user.name.split(' ')[0]}</span>
-          </h1>
-          <p className="text-stone-600 dark:text-stone-400 mt-1.5 font-light text-sm sm:text-base md:text-lg">
+          <div className="flex items-center gap-3 mb-2">
+            <h1 className="text-2xl sm:text-3xl md:text-4xl font-display font-bold text-stone-900 dark:text-white tracking-tight">
+              Hola, <span className="text-gradient-gold">{user.name.split(' ')[0]}</span>
+            </h1>
+            <Sparkles className="text-gold animate-pulse-soft" size={24} />
+          </div>
+          <p className="text-stone-600 dark:text-stone-400 font-light text-sm sm:text-base md:text-lg">
             {recordings.length === 0
               ? 'Tu archivo está listo para comenzar.'
               : `${recordings.length} ${recordings.length === 1 ? 'grabación guardada' : 'grabaciones guardadas'}.`}
@@ -73,10 +106,9 @@ const Dashboard = ({
         </div>
         <div className="relative w-full md:w-auto group flex-shrink-0">
           <label htmlFor="search-input" className="sr-only">Buscar grabaciones</label>
-          <Search 
-            className="absolute left-4 top-1/2 -translate-y-1/2 text-stone-400 dark:text-stone-500 group-focus-within:text-primary transition-colors pointer-events-none" 
-            size={18} 
-            aria-hidden="true"
+          <Search
+            className="absolute left-4 top-1/2 -translate-y-1/2 text-stone-400 dark:text-stone-500 group-focus-within:text-primary transition-colors pointer-events-none"
+            size={18}
           />
           <input
             id="search-input"
@@ -84,23 +116,59 @@ const Dashboard = ({
             placeholder="Buscar grabaciones..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full md:w-80 pl-11 pr-5 py-2.5 bg-stone-100/80 dark:bg-stone-800/80 backdrop-blur-sm border border-stone-200 dark:border-stone-700 rounded-full focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary text-sm transition-all placeholder:text-stone-400 dark:placeholder:text-stone-500"
-            aria-label="Buscar grabaciones"
+            className="w-full md:w-80 pl-11 pr-5 py-3 bg-white/80 dark:bg-stone-800/80 backdrop-blur-sm border border-stone-200 dark:border-stone-700 rounded-2xl focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary text-sm transition-all placeholder:text-stone-400"
           />
         </div>
       </header>
 
       {/* Loading Overlay */}
       {isLoading && (
-        <div 
-          className="fixed inset-0 bg-black/30 dark:bg-black/50 backdrop-blur-sm z-40 flex items-center justify-center"
-          role="status"
-          aria-live="polite"
-          aria-label="Cargando grabaciones"
-        >
-          <div className="bg-white dark:bg-stone-900 rounded-2xl p-6 md:p-8 shadow-2xl flex flex-col items-center gap-4 max-w-sm mx-4">
-            <Loader2 size={48} className="animate-spin text-primary" aria-hidden="true" />
-            <p className="text-stone-700 dark:text-stone-300 font-medium text-center">Cargando grabaciones...</p>
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-40 flex items-center justify-center">
+          <div className="bg-white dark:bg-stone-900 rounded-3xl p-8 shadow-2xl flex flex-col items-center gap-4 max-w-sm mx-4 animate-scale-in">
+            <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center">
+              <Loader2 size={32} className="animate-spin text-primary" />
+            </div>
+            <p className="text-stone-700 dark:text-stone-300 font-medium">Cargando grabaciones...</p>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {deleteConfirmId && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-stone-900 rounded-3xl p-6 shadow-2xl max-w-sm w-full animate-scale-in">
+            <div className="w-14 h-14 bg-red-100 dark:bg-red-900/30 rounded-full flex items-center justify-center mx-auto mb-4">
+              <Trash2 className="text-red-600 dark:text-red-400" size={28} />
+            </div>
+            <h3 className="text-xl font-bold text-stone-900 dark:text-white text-center mb-2">
+              ¿Eliminar grabación?
+            </h3>
+            <p className="text-stone-600 dark:text-stone-400 text-center text-sm mb-6">
+              Esta acción no se puede deshacer. Se eliminará permanentemente la grabación y su análisis.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setDeleteConfirmId(null)}
+                disabled={deletingId !== null}
+                className="flex-1 px-4 py-3 bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300 rounded-xl font-medium hover:bg-stone-200 dark:hover:bg-stone-700 transition-colors disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={() => handleDelete(deleteConfirmId)}
+                disabled={deletingId !== null}
+                className="flex-1 px-4 py-3 bg-red-500 text-white rounded-xl font-medium hover:bg-red-600 transition-colors shadow-lg shadow-red-500/30 disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {deletingId ? (
+                  <Loader2 size={18} className="animate-spin" />
+                ) : (
+                  <>
+                    <Trash2 size={18} />
+                    Eliminar
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -115,155 +183,141 @@ const Dashboard = ({
 
       {/* Recent Section */}
       <section aria-labelledby="recent-recordings-heading">
-        <h2 id="recent-recordings-heading" className="text-lg md:text-xl font-semibold text-stone-900 dark:text-stone-100 mb-4 md:mb-6">
-          Grabaciones Recientes
-        </h2>
+        <div className="flex items-center justify-between mb-6">
+          <h2 id="recent-recordings-heading" className="text-lg md:text-xl font-bold text-stone-900 dark:text-stone-100">
+            Grabaciones Recientes
+          </h2>
+          {filteredRecordings.length > 0 && (
+            <span className="text-sm text-stone-500 dark:text-stone-400">
+              {filteredRecordings.length} {filteredRecordings.length === 1 ? 'resultado' : 'resultados'}
+            </span>
+          )}
+        </div>
 
         {filteredRecordings.length === 0 ? (
-          <div 
-            className="text-center py-16 md:py-20 bg-white dark:bg-stone-900 rounded-2xl border-2 border-dashed border-stone-200 dark:border-stone-800"
-            role="status"
-            aria-live="polite"
-          >
-            <div className="w-16 h-16 bg-stone-50 dark:bg-stone-800 rounded-full flex items-center justify-center mx-auto mb-4" aria-hidden="true">
-              <FileAudio className="text-stone-300 dark:text-stone-600" size={32} />
+          <div className="empty-state animate-fade-in">
+            <div className="w-20 h-20 bg-stone-100 dark:bg-stone-800 rounded-full flex items-center justify-center mx-auto mb-6">
+              <FileAudio className="text-stone-400 dark:text-stone-600" size={40} />
             </div>
-            <p className="text-stone-600 dark:text-stone-400 px-4">
-              {searchTerm 
+            <h3 className="text-xl font-bold text-stone-800 dark:text-stone-200 mb-2">
+              {searchTerm ? 'Sin resultados' : 'Tu archivo está vacío'}
+            </h3>
+            <p className="text-stone-600 dark:text-stone-400 max-w-md mx-auto">
+              {searchTerm
                 ? `No se encontraron grabaciones que coincidan con "${searchTerm}"`
-                : 'Tu archivo está vacío. Comienza a documentar una sesión.'}
+                : 'Comienza a documentar tus sesiones grabando audio o subiendo archivos.'}
             </p>
+            {!searchTerm && (
+              <button
+                onClick={onStartRecord}
+                className="mt-6 btn-primary inline-flex items-center gap-2"
+              >
+                <Mic size={20} />
+                Comenzar a Grabar
+              </button>
+            )}
           </div>
         ) : (
-          <div 
-            className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6"
-            role="list"
-            aria-label="Lista de grabaciones"
-          >
-            {filteredRecordings.map(rec => (
-              <article
-                key={rec.id}
-                className="group glass-card p-5 rounded-2xl hover:-translate-y-1 hover:shadow-xl relative overflow-hidden cursor-pointer transition-all duration-200 focus-within:ring-2 focus-within:ring-primary/50 focus-within:outline-none"
-                onClick={() => onSelectRecording(rec)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    onSelectRecording(rec);
-                  }
-                }}
-                tabIndex={0}
-                role="listitem"
-                aria-label={`Grabación: ${rec.analysis?.title || 'Procesando'}`}
-              >
-                <div className="flex justify-between items-start mb-4">
-                  <div 
-                    className={`p-2.5 rounded-xl ${rec.status === RecordingStatus.PROCESSING ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' : 'bg-stone-100 text-stone-700 dark:bg-stone-800 dark:text-stone-300'}`}
-                    aria-hidden="true"
-                  >
-                    {rec.status === RecordingStatus.PROCESSING ? (
-                      <Clock size={20} className="animate-spin-slow" aria-label="Procesando" />
-                    ) : (
-                      <FileAudio size={20} aria-label="Grabación completada" />
-                    )}
-                  </div>
-                  <time 
-                    className="text-xs font-medium text-stone-500 dark:text-stone-400 font-mono bg-stone-50 dark:bg-stone-800/50 px-2.5 py-1 rounded-md border border-stone-100 dark:border-stone-800"
-                    dateTime={new Date(rec.createdAt).toISOString()}
-                  >
-                    {formatTime(rec.duration)}
-                  </time>
-                </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+            {filteredRecordings.map((rec, index) => {
+              const status = getStatusBadge(rec.status);
+              const StatusIcon = status.icon;
 
-                <h3 className="font-display font-bold text-lg text-stone-900 dark:text-stone-100 mb-2 line-clamp-2 group-hover:text-primary transition-colors min-h-[3.5rem]">
-                  {rec.analysis?.title || "Procesando..."}
-                </h3>
-                <p className="text-sm text-stone-600 dark:text-stone-400 mb-4 line-clamp-2 min-h-[2.5rem] leading-relaxed">
-                  {rec.analysis?.summary?.[0] || "Esperando resumen de IA..."}
-                </p>
-
-                <div className="flex items-center gap-2 mt-auto pt-4 border-t border-stone-100 dark:border-stone-800">
-                  <span className="px-2.5 py-1 bg-stone-100 dark:bg-stone-800 text-[10px] uppercase tracking-wider font-semibold text-stone-600 dark:text-stone-400 rounded-full">
-                    {rec.analysis?.category || "General"}
-                  </span>
-                  <time 
-                    className="text-[10px] text-stone-500 dark:text-stone-500 ml-auto"
-                    dateTime={new Date(rec.createdAt).toISOString()}
-                  >
-                    {new Date(rec.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
-                  </time>
-                </div>
-
-                {/* Delete Button */}
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    e.preventDefault();
-                    if (window.confirm('¿Estás seguro de que deseas eliminar esta grabación?')) {
-                      onDeleteRecording(rec.id);
-                    }
-                  }}
+              return (
+                <article
+                  key={rec.id}
+                  className="group recording-card glass-card p-5 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                  onClick={() => onSelectRecording(rec)}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' || e.key === ' ') {
-                      e.stopPropagation();
+                      e.preventDefault();
+                      onSelectRecording(rec);
                     }
                   }}
-                  className="absolute top-3 right-3 p-2 text-stone-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-full opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus:opacity-100 transition-all focus:outline-none focus:ring-2 focus:ring-red-500/50"
-                  aria-label={`Eliminar grabación: ${rec.analysis?.title || 'sin título'}`}
-                  title="Eliminar grabación"
+                  tabIndex={0}
+                  style={{ animationDelay: `${index * 50}ms` }}
                 >
-                  <Trash2 size={16} aria-hidden="true" />
-                </button>
-              </article>
-            ))}
+                  {/* Header Row */}
+                  <div className="flex justify-between items-start mb-4">
+                    <div className={`p-2.5 rounded-xl ${status.class} flex items-center gap-1.5`}>
+                      <StatusIcon
+                        size={18}
+                        className={rec.status === RecordingStatus.PROCESSING ? 'animate-spin-slow' : ''}
+                      />
+                      <span className="text-xs font-semibold hidden sm:inline">{status.label}</span>
+                    </div>
+                    <time className="text-xs font-medium text-stone-500 dark:text-stone-400 font-mono bg-stone-50 dark:bg-stone-800/50 px-2.5 py-1.5 rounded-lg">
+                      {formatTime(rec.duration)}
+                    </time>
+                  </div>
+
+                  {/* Title */}
+                  <h3 className="font-display font-bold text-lg text-stone-900 dark:text-stone-100 mb-2 line-clamp-2 group-hover:text-primary transition-colors min-h-[3.5rem]">
+                    {rec.analysis?.title || "Procesando..."}
+                  </h3>
+
+                  {/* Summary */}
+                  <p className="text-sm text-stone-600 dark:text-stone-400 mb-4 line-clamp-2 min-h-[2.5rem] leading-relaxed">
+                    {rec.analysis?.summary?.[0] || "Analizando contenido con IA..."}
+                  </p>
+
+                  {/* Footer */}
+                  <div className="flex items-center gap-2 pt-4 border-t border-stone-100 dark:border-stone-800">
+                    <span className="px-2.5 py-1 bg-primary/10 text-primary text-[10px] uppercase tracking-wider font-bold rounded-full">
+                      {rec.analysis?.category || "General"}
+                    </span>
+                    <time className="text-[10px] text-stone-500 ml-auto">
+                      {new Date(rec.createdAt).toLocaleDateString('es', { month: 'short', day: 'numeric', year: '2-digit' })}
+                    </time>
+                  </div>
+
+                  {/* Delete Button */}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      e.preventDefault();
+                      setDeleteConfirmId(rec.id);
+                    }}
+                    className="absolute top-3 right-3 delete-btn"
+                    aria-label="Eliminar grabación"
+                    title="Eliminar grabación"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </article>
+              );
+            })}
           </div>
         )}
       </section>
 
-      {/* Audio Uploader Section - Desktop */}
-      <div className="hidden md:block mb-8">
-        <AudioUploader
-          onFileUpload={onFileUpload}
-          maxSizeMB={500}
-        />
-      </div>
-
-      {/* Mobile-Optimized Action Buttons */}
-      <nav 
-        className="fixed bottom-4 sm:bottom-6 left-1/2 -translate-x-1/2 z-30 flex flex-col sm:flex-row items-center gap-3 max-w-full px-4"
-        aria-label="Acciones principales"
-      >
-        {/* Hidden file input */}
+      {/* Floating Action Buttons */}
+      <nav className="fixed bottom-6 left-1/2 -translate-x-1/2 z-30 flex items-center gap-4">
         <input
           type="file"
           ref={fileInputRef}
           onChange={handleFileChange}
           accept="audio/*,video/*,.mp3,.wav,.m4a,.webm,.ogg"
           className="hidden"
-          aria-label="Subir archivo de audio"
         />
 
         {/* Upload Button */}
         <button
           onClick={() => fileInputRef.current?.click()}
-          className="bg-stone-800 hover:bg-stone-700 dark:bg-stone-700 dark:hover:bg-stone-600 text-white px-5 py-3 sm:px-6 sm:py-4 rounded-full shadow-xl transition-all hover:scale-105 active:scale-95 flex items-center gap-2 min-w-[140px] sm:min-w-[160px] justify-center focus:outline-none focus:ring-2 focus:ring-stone-500/50"
-          aria-label="Subir archivo de audio"
-          title="Subir archivo de audio"
+          className="bg-white dark:bg-stone-800 text-stone-700 dark:text-stone-200 px-5 py-3.5 rounded-2xl shadow-xl border border-stone-200 dark:border-stone-700 transition-all hover:scale-105 hover:shadow-2xl active:scale-95 flex items-center gap-2.5 font-semibold"
         >
-          <Upload size={20} className="sm:hidden" aria-hidden="true" />
-          <Upload size={24} className="hidden sm:block" aria-hidden="true" />
-          <span className="font-semibold text-sm sm:text-base">Subir Audio</span>
+          <Upload size={20} />
+          <span className="hidden sm:inline">Subir Audio</span>
         </button>
 
         {/* Record Button */}
         <button
           onClick={onStartRecord}
-          className="bg-primary hover:bg-primary-hover text-white px-5 py-3 sm:px-6 sm:py-4 rounded-full shadow-2xl shadow-primary/40 transition-all hover:scale-105 active:scale-95 flex items-center gap-2 min-w-[140px] sm:min-w-[160px] justify-center focus:outline-none focus:ring-2 focus:ring-primary/50"
-          aria-label="Iniciar grabación de audio"
-          title="Iniciar grabación"
+          className="bg-gradient-to-r from-primary to-amber-600 text-white px-6 py-4 rounded-2xl shadow-2xl shadow-primary/40 transition-all hover:scale-105 hover:shadow-3xl active:scale-95 flex items-center gap-2.5 font-bold"
         >
-          <Mic size={20} className="sm:hidden" aria-hidden="true" />
-          <Mic size={24} className="hidden sm:block" aria-hidden="true" />
-          <span className="font-semibold text-sm sm:text-base">Grabar</span>
+          <div className="w-3 h-3 bg-white rounded-full animate-pulse" />
+          <Mic size={22} />
+          <span>Grabar</span>
         </button>
       </nav>
     </div>
