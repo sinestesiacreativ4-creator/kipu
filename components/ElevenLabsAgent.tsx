@@ -301,8 +301,38 @@ const ElevenLabsAgent: React.FC<ElevenLabsAgentProps> = ({ recordingId, meetingC
     // Connect to ElevenLabs
     const connect = useCallback(async () => {
         try {
-            setStatus('Conectando...');
+            setStatus('Obteniendo contexto de la reunión...');
             setError(null);
+
+            // Get full context from backend
+            let fullContext = meetingContext || '';
+            if (recordingId) {
+                try {
+                    const backendUrlEnv = import.meta.env.VITE_API_URL || import.meta.env.VITE_BACKEND_URL;
+                    const isDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+                    const backendUrl = backendUrlEnv 
+                        ? backendUrlEnv
+                        : (isDev
+                            ? 'http://localhost:10000'
+                            : 'https://kipu-backend-8006.onrender.com');
+                    
+                    const response = await fetch(`${backendUrl}/api/recordings/${recordingId}/context`);
+                    if (response.ok) {
+                        const data = await response.json();
+                        if (data.success && data.context) {
+                            fullContext = data.context;
+                            console.log('[ElevenLabs] Got full context from backend');
+                        }
+                    } else {
+                        console.warn('[ElevenLabs] Could not fetch context from backend, using provided context');
+                    }
+                } catch (error) {
+                    console.warn('[ElevenLabs] Error fetching context:', error);
+                    // Continue with provided context
+                }
+            }
+
+            setStatus('Conectando a Eleven Labs...');
 
             // Initialize audio
             const ctx = initAudioContext();
@@ -321,16 +351,28 @@ const ElevenLabsAgent: React.FC<ElevenLabsAgentProps> = ({ recordingId, meetingC
                 setIsConnected(true);
                 setStatus('Conectado');
 
-                // Send initial context about the meeting if available
-                if (meetingContext) {
+                // Send initial context about the meeting using Eleven Labs format
+                if (fullContext) {
+                    // Eleven Labs uses 'conversation_initiation_client_data' for initial setup
                     ws.send(JSON.stringify({
-                        type: 'context',
-                        text: `Contexto de la reunión: ${meetingContext}`
+                        type: 'conversation_initiation_client_data',
+                        conversation_config_override: {
+                            agent: {
+                                prompt: {
+                                    prompt: fullContext
+                                },
+                                first_message: 'Hola, soy tu asistente de voz. Puedo ayudarte a entender y recordar información de esta reunión. ¿Sobre qué te gustaría saber?',
+                                language: 'es'
+                            }
+                        }
                     }));
+                    console.log('[ElevenLabs] Sent conversation initiation with context');
                 }
 
-                // Start microphone
-                startMicrophone();
+                // Start microphone after a short delay to ensure context is processed
+                setTimeout(() => {
+                    startMicrophone();
+                }, 300);
             };
 
             ws.onmessage = handleMessage;
@@ -352,7 +394,7 @@ const ElevenLabsAgent: React.FC<ElevenLabsAgentProps> = ({ recordingId, meetingC
             setError('Error al conectar: ' + error.message);
             setStatus('Error');
         }
-    }, [initAudioContext, meetingContext, handleMessage, startMicrophone, stopMicrophone]);
+    }, [initAudioContext, meetingContext, recordingId, handleMessage, startMicrophone, stopMicrophone]);
 
     // Disconnect
     const disconnect = useCallback(() => {
