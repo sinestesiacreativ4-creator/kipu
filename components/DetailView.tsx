@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { ArrowLeft, List, Download, Folder, CheckCircle2, RefreshCw, MessageSquare, FileText, Mic } from 'lucide-react';
 import MeetingChat from './MeetingChat';
-import VoiceAgent from './VoiceAgent';
+import ElevenLabsAgent from './ElevenLabsAgent';
 import { Recording, RecordingStatus, ExportOptions } from '../types';
 import { formatTime } from '../utils';
 import { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType } from 'docx';
@@ -254,16 +254,16 @@ const DetailView: React.FC<DetailViewProps> = ({ recording, onBack, onReanalyze 
                 <Folder size={14} aria-hidden="true" /> {analysis.category}
               </span>
               <span className="hidden md:inline text-stone-300 dark:text-stone-600" aria-hidden="true">•</span>
-              <time 
+              <time
                 className="flex items-center gap-1.5"
                 dateTime={new Date(createdAt).toISOString()}
               >
-                <span className="w-1.5 h-1.5 bg-stone-400 rounded-full" aria-hidden="true"></span> 
+                <span className="w-1.5 h-1.5 bg-stone-400 rounded-full" aria-hidden="true"></span>
                 {new Date(createdAt).toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
               </time>
               <span className="hidden md:inline text-stone-300 dark:text-stone-600" aria-hidden="true">•</span>
               <span className="flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 bg-stone-400 rounded-full" aria-hidden="true"></span> 
+                <span className="w-1.5 h-1.5 bg-stone-400 rounded-full" aria-hidden="true"></span>
                 {formatTime(duration)}
               </span>
             </div>
@@ -285,7 +285,7 @@ const DetailView: React.FC<DetailViewProps> = ({ recording, onBack, onReanalyze 
               className="flex items-center gap-2 px-4 md:px-5 py-2.5 bg-secondary hover:bg-green-800 text-white rounded-xl shadow-lg shadow-secondary/20 transition-all hover:-translate-y-0.5 font-medium focus:outline-none focus:ring-2 focus:ring-green-600/50"
               aria-label="Exportar grabación"
             >
-              <Download size={18} aria-hidden="true" /> 
+              <Download size={18} aria-hidden="true" />
               <span className="text-sm md:text-base">Exportar</span>
             </button>
           </div>
@@ -304,7 +304,7 @@ const DetailView: React.FC<DetailViewProps> = ({ recording, onBack, onReanalyze 
         <div className="lg:col-span-2 space-y-6">
 
           {/* Tabs (No Print) */}
-          <nav 
+          <nav
             className="flex p-1.5 bg-stone-100 dark:bg-stone-800/50 rounded-2xl no-print mb-6 md:mb-8 border border-stone-200 dark:border-stone-700"
             role="tablist"
             aria-label="Secciones de la grabación"
@@ -370,7 +370,7 @@ const DetailView: React.FC<DetailViewProps> = ({ recording, onBack, onReanalyze 
           </nav>
 
           {/* Summary Tab Content */}
-          <div 
+          <div
             id="summary-panel"
             role="tabpanel"
             aria-labelledby="summary-tab"
@@ -418,7 +418,7 @@ const DetailView: React.FC<DetailViewProps> = ({ recording, onBack, onReanalyze 
           </div>
 
           {/* Transcript Tab Content */}
-          <div 
+          <div
             id="transcript-panel"
             role="tabpanel"
             aria-labelledby="transcript-tab"
@@ -454,7 +454,7 @@ const DetailView: React.FC<DetailViewProps> = ({ recording, onBack, onReanalyze 
           </div>
 
           {/* Chat Tab Content */}
-          <div 
+          <div
             id="chat-panel"
             role="tabpanel"
             aria-labelledby="chat-tab"
@@ -464,13 +464,16 @@ const DetailView: React.FC<DetailViewProps> = ({ recording, onBack, onReanalyze 
           </div>
 
           {/* Voice Tab Content */}
-          <div 
+          <div
             id="voice-panel"
             role="tabpanel"
             aria-labelledby="voice-tab"
             className={`${activeTab === 'voice' ? 'block' : 'hidden'} print:hidden animate-fade-in`}
           >
-            <VoiceAgent recordingId={recording.id} />
+            <ElevenLabsAgent
+              recordingId={recording.id}
+              meetingContext={analysis.summary?.join(' ') || analysis.executiveSummary}
+            />
           </div>
 
         </div>
@@ -520,7 +523,7 @@ const DetailView: React.FC<DetailViewProps> = ({ recording, onBack, onReanalyze 
 
       {/* Export Modal */}
       {showExportModal && (
-        <div 
+        <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 dark:bg-black/70 backdrop-blur-sm p-4"
           role="dialog"
           aria-modal="true"
