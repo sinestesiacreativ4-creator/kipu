@@ -16,7 +16,7 @@ model Organization {
   slug      String   @unique
   code      String?  @unique // Código único de organización (generado al pagar, opcional hasta que se pague)
   createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  updatedAt DateTime @default(now()) @updatedAt
 
   // Subscription & Billing
   subscriptionId String?       @unique
