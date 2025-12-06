@@ -10,7 +10,7 @@ export const RecordingController = {
      */
     async getRecordings(req: Request, res: Response) {
         const { sessionId, recordingId } = req.params;
-        
+
         // sessionId is actually organizationId in the current frontend implementation
         const organizationId = sessionId;
 
@@ -154,7 +154,7 @@ INSTRUCCIONES:
             res.json({ success: true, message: 'Recording deleted' });
         } catch (error: any) {
             console.error('[RecordingController] Delete error:', error);
-            
+
             if (error.code === 'P2025') {
                 return res.status(404).json({
                     error: 'Recording not found',
@@ -162,7 +162,7 @@ INSTRUCCIONES:
                     code: 'RECORDING_NOT_FOUND'
                 });
             }
-            
+
             res.status(500).json({
                 error: 'Internal server error',
                 message: error.message,
@@ -172,9 +172,9 @@ INSTRUCCIONES:
     }
 };
 
-// Routes
-router.get('/recordings/:sessionId/:recordingId?', RecordingController.getRecordings);
+// Routes - IMPORTANT: Specific routes MUST come before parameterized routes!
 router.get('/recordings/:recordingId/context', RecordingController.getContext);
 router.delete('/recordings/:recordingId', validateUUID('recordingId'), RecordingController.deleteRecording);
+router.get('/recordings/:sessionId/:recordingId?', RecordingController.getRecordings);
 
 export default router;
