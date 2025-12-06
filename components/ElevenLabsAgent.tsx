@@ -304,18 +304,19 @@ const ElevenLabsAgent: React.FC<ElevenLabsAgentProps> = ({ recordingId, meetingC
             setStatus('Obteniendo contexto de la reunión...');
             setError(null);
 
+            // Get backend URL
+            const backendUrlEnv = import.meta.env.VITE_API_URL || import.meta.env.VITE_BACKEND_URL;
+            const isDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+            const backendUrl = backendUrlEnv
+                ? backendUrlEnv
+                : (isDev
+                    ? 'http://localhost:10000'
+                    : 'https://kipu-ruki.onrender.com');
+
             // Get full context from backend
             let fullContext = meetingContext || '';
             if (recordingId) {
                 try {
-                    const backendUrlEnv = import.meta.env.VITE_API_URL || import.meta.env.VITE_BACKEND_URL;
-                    const isDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-                    const backendUrl = backendUrlEnv
-                        ? backendUrlEnv
-                        : (isDev
-                            ? 'http://localhost:10000'
-                            : 'https://kipu-backend-8006.onrender.com');
-
                     const response = await fetch(`${backendUrl}/api/recordings/${recordingId}/context`);
                     if (response.ok) {
                         const data = await response.json();
@@ -328,20 +329,48 @@ const ElevenLabsAgent: React.FC<ElevenLabsAgentProps> = ({ recordingId, meetingC
                     }
                 } catch (error) {
                     console.warn('[ElevenLabs] Error fetching context:', error);
-                    // Continue with provided context
                 }
             }
 
-            setStatus('Conectando a Eleven Labs...');
+            setStatus('Obteniendo acceso a ElevenLabs...');
+
+            // Get signed URL from backend (required for private agents)
+            let wsUrl: string;
+            try {
+                const signedUrlResponse = await fetch(`${backendUrl}/api/elevenlabs/signed-url`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ agentId: ELEVENLABS_AGENT_ID })
+                });
+
+                if (signedUrlResponse.ok) {
+                    const signedData = await signedUrlResponse.json();
+                    if (signedData.success && signedData.signedUrl) {
+                        wsUrl = signedData.signedUrl;
+                        console.log('[ElevenLabs] Got signed URL from backend');
+                    } else {
+                        throw new Error('No signed URL in response');
+                    }
+                } else {
+                    const errorData = await signedUrlResponse.json();
+                    console.warn('[ElevenLabs] Could not get signed URL:', errorData);
+
+                    // Fallback to direct connection (only works for public agents)
+                    wsUrl = `wss://api.elevenlabs.io/v1/convai/conversation?agent_id=${ELEVENLABS_AGENT_ID}`;
+                    console.log('[ElevenLabs] Falling back to direct connection (public agent mode)');
+                }
+            } catch (error) {
+                console.warn('[ElevenLabs] Signed URL error, falling back to direct:', error);
+                wsUrl = `wss://api.elevenlabs.io/v1/convai/conversation?agent_id=${ELEVENLABS_AGENT_ID}`;
+            }
+
+            setStatus('Conectando a ElevenLabs...');
 
             // Initialize audio
             const ctx = initAudioContext();
             if (ctx.state === 'suspended') await ctx.resume();
 
-            // Connect to ElevenLabs Conversational AI WebSocket
-            const wsUrl = `wss://api.elevenlabs.io/v1/convai/conversation?agent_id=${ELEVENLABS_AGENT_ID}`;
-
-            console.log('[ElevenLabs] Connecting to:', wsUrl);
+            console.log('[ElevenLabs] Connecting to WebSocket...');
 
             const ws = new WebSocket(wsUrl);
             wsRef.current = ws;
@@ -353,7 +382,6 @@ const ElevenLabsAgent: React.FC<ElevenLabsAgentProps> = ({ recordingId, meetingC
 
                 // Send initial context about the meeting using Eleven Labs format
                 if (fullContext) {
-                    // Eleven Labs uses 'conversation_initiation_client_data' for initial setup
                     ws.send(JSON.stringify({
                         type: 'conversation_initiation_client_data',
                         conversation_config_override: {
@@ -380,7 +408,17 @@ const ElevenLabsAgent: React.FC<ElevenLabsAgentProps> = ({ recordingId, meetingC
             ws.onclose = (event) => {
                 console.log('[ElevenLabs] Disconnected:', event.code, event.reason);
                 setIsConnected(false);
-                setStatus('Desconectado');
+
+                // Provide helpful error messages
+                if (event.reason?.includes('does not exist')) {
+                    setError('El agente no existe. Verifica el ID del agente en ElevenLabs.');
+                    setStatus('Agente no encontrado');
+                } else if (event.code === 1008) {
+                    setError('Acceso denegado. El agente puede ser privado.');
+                    setStatus('Acceso denegado');
+                } else {
+                    setStatus('Desconectado');
+                }
                 stopMicrophone();
             };
 

@@ -119,6 +119,10 @@ app.use('/api', statusRoutes); // Status polling for recordings
 import voiceRoutes from './controllers/voiceController';
 app.use('/api/voice', voiceRoutes);
 
+// ElevenLabs API Routes (for signed URLs)
+import elevenLabsRoutes from './controllers/elevenLabsController';
+app.use('/api', elevenLabsRoutes);
+
 // Payment API Routes
 app.use('/api/payments', paymentRoutes);
 
